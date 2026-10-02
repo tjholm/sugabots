@@ -1,0 +1,54 @@
+#!/bin/bash
+# Starts a desktop on its own display, so agents working at the same time
+# never click on each other's windows.
+#
+#   sugabots-desktop start [display]   start one, print its DISPLAY
+#   sugabots-desktop stop [display]    stop it
+#
+# Display N is served to a VNC viewer on port 5900+N and to a browser, through
+# noVNC, on port 6080+N. Without a number, start takes the first free one.
+set -euo pipefail
+
+state="${TMPDIR:-/tmp}/sugabots-desktop"
+mkdir -p "$state"
+
+free_display() {
+	local n=1
+	while [ -e "/tmp/.X11-unix/X$n" ] || [ -e "/tmp/.X$n-lock" ]; do n=$((n + 1)); done
+	echo "$n"
+}
+
+start() {
+	local n="${1:-$(free_display)}"
+	local log="$state/$n.log"
+	export DISPLAY=":$n"
+	# -ac: any program in this sandbox may draw on it.
+	Xvfb "$DISPLAY" -screen 0 1280x800x24 -ac -nolisten tcp >>"$log" 2>&1 &
+	echo $! >"$state/$n.pids"
+	for _ in $(seq 50); do [ -e "/tmp/.X11-unix/X$n" ] && break; sleep 0.1; done
+	hsetroot -solid "#0b0c0f" >>"$log" 2>&1
+	openbox >>"$log" 2>&1 &
+	echo $! >>"$state/$n.pids"
+	# No password: the ports are reached only through Sugabots.
+	x11vnc -display "$DISPLAY" -nopw -forever -shared -quiet -rfbport $((5900 + n)) >>"$log" 2>&1 &
+	echo $! >>"$state/$n.pids"
+	python3 -m websockify --web /opt/novnc $((6080 + n)) localhost:$((5900 + n)) >>"$log" 2>&1 &
+	echo $! >>"$state/$n.pids"
+	echo "DISPLAY=$DISPLAY"
+}
+
+stop() {
+	local n="${1:?which display}"
+	[ -f "$state/$n.pids" ] || exit 0
+	xargs -r kill <"$state/$n.pids" 2>/dev/null || true
+	rm -f "$state/$n.pids"
+}
+
+case "${1:-}" in
+start) start "${2:-}" ;;
+stop) stop "${2:-}" ;;
+*)
+	echo "usage: sugabots-desktop start [display] | stop display" >&2
+	exit 2
+	;;
+esac
