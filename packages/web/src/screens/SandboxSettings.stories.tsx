@@ -1,4 +1,4 @@
-import type { SandboxProvider } from "@sugabots/contracts";
+import type { SandboxNetworkSettings, SandboxProvider } from "@sugabots/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HttpResponse, http } from "msw";
 import { type ReactNode, useEffect, useState } from "react";
@@ -32,6 +32,11 @@ const openSandbox: SandboxProvider = {
 };
 
 const providersUrl = `${import.meta.env.VITE_API_URL}/workspaces/${workspace.id}/sandbox-providers`;
+
+const network: SandboxNetworkSettings = {
+	trustedHosts: ["github.com", "*.github.com", "registry.npmjs.org", "pypi.org"],
+	addedHosts: [],
+};
 
 const answers = (providers: readonly SandboxProvider[]) =>
 	http.get(providersUrl, () => HttpResponse.json(providers));
@@ -72,6 +77,9 @@ const meta = preview.meta({
 		msw.use(
 			http.get(`${import.meta.env.VITE_API_URL}/workspaces`, () => HttpResponse.json([workspace])),
 			answers([]),
+			http.get(`${import.meta.env.VITE_API_URL}/workspaces/${workspace.id}/sandbox-network`, () =>
+				HttpResponse.json(network),
+			),
 			http.get(`${providersUrl}/:providerId/template`, () => HttpResponse.json({ state: "ready" })),
 			http.all(`${providersUrl}*`, () =>
 				HttpResponse.json(

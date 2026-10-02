@@ -42,6 +42,8 @@ export interface ToolDependencies {
 	builtIn: ToolSet;
 	/** The tools that work in the pod's sandbox, when the installation has sandboxes. */
 	sandbox?: ToolSet;
+	/** Built-in tools whose every call waits for a person to allow it. */
+	requests?: ToolSet;
 	/** The pod connections' tools, keyed `handle__tool`, each with whether it changes things. */
 	connections?: Record<string, OfferedTool>;
 	/** Where an interviewing agent's own instructions are saved. */
@@ -89,6 +91,15 @@ export function toolsForTurn(prepared: PreparedTurn, deps: ToolDependencies): To
 	for (const [key, tool] of Object.entries(deps.sandbox ?? {})) {
 		tools[key] = recorded(key, tool, { ...recording, mutating: key !== READ_FILE_TOOL });
 	}
+	// What a request does once allowed changes something, so a turn that fails
+	// afterwards is not run again.
+	for (const [key, tool] of Object.entries(deps.requests ?? {})) {
+		tools[key] = recorded(key, tool, {
+			...recording,
+			mutating: true,
+			approval: { approvals: deps.approvals, binding: { kind: "built-in" } },
+		});
+	}
 	for (const [key, offered] of Object.entries(deps.connections ?? {})) {
 		const approvalBound = deps.approvalBoundTools?.has(key) ?? false;
 		tools[key] = recorded(key, offered.tool, {
@@ -96,12 +107,7 @@ export function toolsForTurn(prepared: PreparedTurn, deps: ToolDependencies): To
 			mutating: offered.mutating || approvalBound,
 			...(offered.requiresApproval || approvalBound
 				? {
-						approval: {
-							approvals: deps.approvals,
-							connectionId: offered.connectionId,
-							connectionRevision: offered.connectionRevision,
-							remoteToolName: offered.remoteToolName,
-						},
+						approval: { approvals: deps.approvals, binding: bindingOf(offered) },
 					}
 				: {}),
 		});
@@ -145,4 +151,14 @@ export function toolsForTurn(prepared: PreparedTurn, deps: ToolDependencies): To
 		});
 	}
 	return tools;
+}
+
+/** What a call to a connection's tool is approved against: the connection as it is configured now. */
+export function bindingOf(offered: OfferedTool): ToolCallRepository.ApprovalBinding {
+	return {
+		kind: "connection",
+		connectionId: offered.connectionId,
+		connectionRevision: offered.connectionRevision,
+		remoteToolName: offered.remoteToolName,
+	};
 }

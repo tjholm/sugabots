@@ -261,7 +261,7 @@ export function AgentChat({
 										dividers={false}
 										onOpenCollaboration={openThread}
 										podId={pod.id}
-										canApproveToolCalls={details.capabilities?.approveToolCalls}
+										approvalCapabilities={details.capabilities}
 										queued={queued}
 										peopleTyping={group === lastGroup ? peopleTyping : undefined}
 										receipts={receipts}

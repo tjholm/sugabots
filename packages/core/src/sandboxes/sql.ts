@@ -115,3 +115,24 @@ export const sandboxLease = pgTable(
 	},
 	(table) => [compositePrimaryKey({ columns: [table.sandboxId, table.holder] })],
 );
+
+/**
+ * A host a workspace let its sandboxes reach, beyond the trusted ones every
+ * workspace's sandboxes reach. Added in settings by someone who manages the
+ * workspace's sandboxes, or by their approving an agent's request.
+ */
+export const sandboxAllowedHost = pgTable(
+	"sandbox_allowed_host",
+	{
+		workspaceId: uuid("workspace_id")
+			.notNull()
+			.references(() => workspace.id, { onDelete: "cascade" }),
+		host: text("host").notNull(),
+		/** Who added it, or approved the request for it. */
+		addedById: uuid("added_by_id").references(() => user.id, { onDelete: "set null" }),
+		/** Why the agent asked for it; null when a person added it. */
+		reason: text("reason"),
+		createdAt: stamp("created_at"),
+	},
+	(table) => [compositePrimaryKey({ columns: [table.workspaceId, table.host] })],
+);

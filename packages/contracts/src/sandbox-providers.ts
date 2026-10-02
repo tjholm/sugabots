@@ -176,3 +176,43 @@ export const sandboxTemplateSchema = Schema.Struct({
 });
 
 export type SandboxTemplate = typeof sandboxTemplateSchema.Type;
+
+/**
+ * A host a sandbox may reach: a domain name such as `api.example.com`, or a
+ * leading wildcard such as `*.example.com`, which covers the domain's
+ * subdomains but not the domain itself. Lowercase. Addresses and ports aren't
+ * hosts here: the providers' allowlists match names.
+ */
+export const sandboxHostSchema = Schema.String.check(
+	Schema.isMaxLength(253),
+	Schema.isPattern(
+		/^(\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
+		{ message: "Enter a domain name, such as api.example.com or *.example.com" },
+	),
+);
+
+/** A host a workspace let its sandboxes reach, beyond the trusted ones. */
+export const sandboxAddedHostSchema = Schema.Struct({
+	host: sandboxHostSchema,
+	/** Who added it, or approved the agent's request for it; null once they've left. */
+	addedByName: Schema.NullOr(Schema.String),
+	/** Why an agent asked for it; null when a person added it in settings. */
+	reason: Schema.NullOr(Schema.String),
+	addedAt: isoTimestampSchema,
+});
+
+export type SandboxAddedHost = typeof sandboxAddedHostSchema.Type;
+
+/**
+ * Where a workspace's sandboxes may connect to. Everything else is refused,
+ * so a command that reaches for another host fails as if it weren't there.
+ */
+export const sandboxNetworkSettingsSchema = Schema.Struct({
+	/** What every workspace's sandboxes reach: package registries and where source code is hosted. */
+	trustedHosts: Schema.Array(sandboxHostSchema),
+	addedHosts: Schema.Array(sandboxAddedHostSchema),
+});
+
+export type SandboxNetworkSettings = typeof sandboxNetworkSettingsSchema.Type;
+
+export const newSandboxHostSchema = Schema.Struct({ host: sandboxHostSchema });

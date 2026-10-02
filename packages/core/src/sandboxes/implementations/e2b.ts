@@ -88,6 +88,7 @@ export const fromE2b = (connection: Sandboxes.E2bConnection): Sandboxes.Provider
 						metadata: { ...spec.labels },
 						timeoutMs: Duration.toMillis(IDLE_BACKSTOP),
 						lifecycle: { onTimeout: "pause" },
+						network: allowOnly(spec.allowedHosts),
 					});
 					await sandbox.commands.run(
 						`mkdir -p ${Sandboxes.WORKSPACE_DIRECTORY} && chown ${AGENT_USER}: ${Sandboxes.WORKSPACE_DIRECTORY}`,
@@ -167,6 +168,11 @@ export const fromE2b = (connection: Sandboxes.E2bConnection): Sandboxes.Provider
 							}
 						: { url: `https://${sandbox.getHost(port)}`, headers: traffic };
 				}),
+			setAllowedHosts: (hosts) =>
+				Effect.tryPromise({
+					try: () => sandbox.updateNetwork(allowOnly(hosts)),
+					catch: unavailable,
+				}),
 		};
 	}
 };
@@ -203,6 +209,13 @@ async function run(
 		throw cause;
 	}
 }
+
+/** E2B's rules for refusing every connection but those to `hosts`: what's allowed wins over what's denied. */
+function allowOnly(hosts: readonly string[]) {
+	return { allowOut: [...hosts], denyOut: [ALL_ADDRESSES] };
+}
+
+const ALL_ADDRESSES = "0.0.0.0/0";
 
 /** A refusal about the file itself, which the agent can do something about. */
 function fileFailure(path: string, cause: unknown): Sandboxes.FileFailed | undefined {

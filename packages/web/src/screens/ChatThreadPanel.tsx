@@ -13,6 +13,7 @@ import { agentSettingsLink } from "@/lib/links.ts";
 import { useBackToHere } from "@/lib/settings-back.tsx";
 import { useThreadEvents, useThreadNotices } from "@/lib/thread-events.ts";
 import { useThread } from "@/lib/threads.ts";
+import { mayAnswer } from "@/lib/tool-approvals.ts";
 import { AgentAvatar } from "@/shell/Agent.tsx";
 import { Button } from "@/ui/button.tsx";
 import { EmptyState } from "@/ui/empty-state.tsx";
@@ -218,7 +219,7 @@ export function ChatThreadPanel({
 							rightAgentId={type === "collaboration" ? mine?.id : undefined}
 							onOpenCollaboration={onOpenThread}
 							podId={details.thread.podId}
-							canApproveToolCalls={details.capabilities?.approveToolCalls}
+							approvalCapabilities={details.capabilities}
 							compact
 							approvalsPinned
 						/>
@@ -230,7 +231,7 @@ export function ChatThreadPanel({
 								call={waiting}
 								threadId={details.thread.id}
 								podId={details.thread.podId}
-								canApprove={details.capabilities?.approveToolCalls ?? false}
+								canApprove={mayAnswer(waiting, details.capabilities)}
 							/>
 						</div>
 					)}

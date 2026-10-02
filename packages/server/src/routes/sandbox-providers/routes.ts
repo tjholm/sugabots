@@ -1,4 +1,5 @@
 import { BadRequest, Conflict, NotFound } from "@sugabots/contracts/http";
+import { SandboxNetwork } from "@sugabots/core/sandboxes/sandbox-network";
 import { SandboxProviderSetup } from "@sugabots/core/sandboxes/sandbox-provider-setup";
 import { Effect } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -12,6 +13,7 @@ export const sandboxProviderRoutes = HttpApiBuilder.group(
 	(handlers) =>
 		Effect.gen(function* () {
 			const setup = yield* SandboxProviderSetup.Service;
+			const network = yield* SandboxNetwork.Service;
 			return handlers
 				.handle("list", ({ params }) =>
 					setup.list(params.workspace).pipe(asSessionUser, asHttpError(sandboxProviderErrors)),
@@ -62,6 +64,19 @@ export const sandboxProviderRoutes = HttpApiBuilder.group(
 					setup
 						.test({ workspace: params.workspace, providerId: params.providerId })
 						.pipe(asSessionUser, asHttpError(sandboxProviderErrors)),
+				)
+				.handle("network", ({ params }) =>
+					network.settings(params.workspace).pipe(asSessionUser, asHttpError(refusals)),
+				)
+				.handle("addHost", ({ params, payload }) =>
+					network
+						.addHost({ workspace: params.workspace, host: payload.host })
+						.pipe(asSessionUser, asHttpError(refusals)),
+				)
+				.handle("removeHost", ({ params }) =>
+					network
+						.removeHost({ workspace: params.workspace, host: params.host })
+						.pipe(asSessionUser, asHttpError(refusals)),
 				);
 		}),
 );

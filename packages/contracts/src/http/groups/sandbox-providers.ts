@@ -1,8 +1,11 @@
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import {
+	newSandboxHostSchema,
 	newSandboxProviderSchema,
 	sandboxAccessSchema,
+	sandboxHostSchema,
+	sandboxNetworkSettingsSchema,
 	sandboxProviderSchema,
 	sandboxProviderTestResultSchema,
 	sandboxProviderUpdateSchema,
@@ -14,6 +17,7 @@ import { BadRequest, Conflict, refused } from "../errors.ts";
 import { Session } from "../middleware.ts";
 
 const root = "/workspaces/:workspace/sandbox-providers";
+const network = "/workspaces/:workspace/sandbox-network";
 const workspace = { workspace: workspaceIdOrSlugSchema };
 const provider = { workspace: workspaceIdOrSlugSchema, providerId: uuidSchema };
 
@@ -58,6 +62,22 @@ export class SandboxProvidersApi extends HttpApiGroup.make("sandboxProviders")
 		HttpApiEndpoint.post("test", `${root}/:providerId/test`, {
 			params: provider,
 			success: sandboxProviderTestResultSchema,
+			error: refused,
+		}),
+		HttpApiEndpoint.get("network", network, {
+			params: workspace,
+			success: sandboxNetworkSettingsSchema,
+			error: refused,
+		}),
+		HttpApiEndpoint.post("addHost", `${network}/hosts`, {
+			params: workspace,
+			payload: newSandboxHostSchema,
+			success: sandboxNetworkSettingsSchema,
+			error: [BadRequest, ...refused],
+		}),
+		HttpApiEndpoint.delete("removeHost", `${network}/hosts/:host`, {
+			params: { workspace: workspaceIdOrSlugSchema, host: sandboxHostSchema },
+			success: sandboxNetworkSettingsSchema,
 			error: refused,
 		}),
 	)

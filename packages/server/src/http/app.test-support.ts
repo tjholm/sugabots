@@ -17,6 +17,7 @@ import { ConnectionSetup } from "@sugabots/core/providers/connections/connection
 import { ModelProviderSetup } from "@sugabots/core/providers/model-providers/model-provider-setup";
 import { SearchProviderSetup } from "@sugabots/core/providers/search-providers/search-provider-setup";
 import { PodSandboxSetup } from "@sugabots/core/sandboxes/pod-sandbox-setup";
+import { SandboxNetwork } from "@sugabots/core/sandboxes/sandbox-network";
 import { SandboxProviderSetup } from "@sugabots/core/sandboxes/sandbox-provider-setup";
 import { unimplemented } from "@sugabots/core/testing";
 import { AgentAdministration } from "@sugabots/core/workspaces/agents/agent-administration";
@@ -106,6 +107,7 @@ const fakes: Layer.Layer<TestServices> = Layer.mergeAll(
 	unimplemented(ModelProviderSetup.Service),
 	unimplemented(SearchProviderSetup.Service),
 	unimplemented(SandboxProviderSetup.Service),
+	unimplemented(SandboxNetwork.Service),
 	unimplemented(DesktopViewer.Service),
 	unimplemented(PodSandboxSetup.Service),
 	unimplemented(ConnectionSetup.Service),

@@ -40,7 +40,10 @@ const connections: ReadonlyArray<[string, Sandboxes.Connection | undefined]> = [
 	],
 ];
 
-const LABELS = { "sugabots.test": "sandboxes.test.ts" };
+const SPEC: Sandboxes.Spec = {
+	labels: { "sugabots.test": "sandboxes.test.ts" },
+	allowedHosts: ["example.com"],
+};
 const EXEC = { timeout: "30 seconds", maxOutputCharacters: 10_000 } as const;
 const SLOW = 180_000;
 
@@ -49,6 +52,11 @@ const run = <A, E>(effect: Effect.Effect<A, E, Sandboxes.Service>) =>
 
 const runExit = <A, E>(effect: Effect.Effect<A, E, Sandboxes.Service>) =>
 	Effect.runPromiseExit(effect.pipe(Effect.provide(Sandboxes.layer)));
+
+/** A command that succeeds only if an HTTPS request to `host` gets an answer. */
+function reachScript(host: string) {
+	return `python3 -c "import urllib.request; urllib.request.urlopen('https://${host}', timeout=10)"`;
+}
 
 function failureTag(exit: Exit.Exit<unknown, { _tag: string }>) {
 	if (Exit.isSuccess(exit)) return "success";
@@ -64,7 +72,7 @@ describe.each(connections)("%s sandboxes", (_, connection) => {
 		let sandbox: Sandboxes.Sandbox;
 
 		beforeAll(async () => {
-			sandbox = await run(Effect.flatMap(provider, (p) => p.create({ labels: LABELS })));
+			sandbox = await run(Effect.flatMap(provider, (p) => p.create(SPEC)));
 		}, SLOW);
 
 		afterAll(async () => {
@@ -74,6 +82,20 @@ describe.each(connections)("%s sandboxes", (_, connection) => {
 		it("accepts the key", async () => {
 			expect(failureTag(await runExit(Effect.flatMap(provider, (p) => p.check)))).toBe("success");
 		});
+
+		it(
+			"reaches only the hosts it is allowed, and changes them while it runs",
+			async () => {
+				const reaches = async (host: string) =>
+					(await run(sandbox.exec(reachScript(host), EXEC))).exitCode === 0;
+
+				expect([await reaches("example.com"), await reaches("github.com")]).toEqual([true, false]);
+				await run(sandbox.setAllowedHosts(["github.com"]));
+				expect([await reaches("example.com"), await reaches("github.com")]).toEqual([false, true]);
+				await run(sandbox.setAllowedHosts(SPEC.allowedHosts));
+			},
+			SLOW,
+		);
 
 		it("runs commands in the workspace, as a user who isn't root", async () => {
 			const execution = await run(sandbox.exec("pwd; id -u", EXEC));
@@ -154,7 +176,7 @@ describe.each(connections)("%s sandboxes", (_, connection) => {
 		it(
 			"reports whether it runs, and the image it was made from",
 			async () => {
-				const made = await run(Effect.flatMap(provider, (p) => p.create({ labels: LABELS })));
+				const made = await run(Effect.flatMap(provider, (p) => p.create(SPEC)));
 				const info = (id: Sandboxes.SandboxId) => run(Effect.flatMap(provider, (p) => p.info(id)));
 
 				const running = await info(made.id);
@@ -198,7 +220,7 @@ describe.each(connections)("%s sandboxes", (_, connection) => {
 				const sandboxes = Effect.map(Sandboxes.Service, (s) =>
 					s.forConnection(connection as Sandboxes.Connection),
 				);
-				const made = await run(Effect.flatMap(sandboxes, (p) => p.create({ labels: LABELS })));
+				const made = await run(Effect.flatMap(sandboxes, (p) => p.create(SPEC)));
 
 				await run(Effect.flatMap(sandboxes, (p) => p.destroy(made.id)));
 
@@ -235,7 +257,7 @@ describe.skipIf(!env.E2B_API_KEY)("E2B templates, against the service", () => {
 			await new Promise((resolve) => setTimeout(resolve, 3_000));
 			status = await run(templates.status(build));
 		}
-		const made = await run(provider.create({ labels: LABELS }));
+		const made = await run(provider.create(SPEC));
 		const python = await run(made.exec("python3 --version", EXEC));
 		await run(provider.destroy(made.id));
 
@@ -259,7 +281,7 @@ describe.skipIf(!env.E2B_API_KEY)("E2B templates, against the service", () => {
 			),
 		);
 
-		const exit = await runExit(provider.create({ labels: LABELS }));
+		const exit = await runExit(provider.create(SPEC));
 		const failure = Exit.isFailure(exit)
 			? exit.cause.reasons.find(Cause.isFailReason)?.error
 			: undefined;

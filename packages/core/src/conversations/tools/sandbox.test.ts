@@ -1,7 +1,13 @@
 import type { ToolSet } from "ai";
 import { Effect, Exit, Layer, Scope } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pod, user, workspace, workspaceMember } from "../../database/schema.ts";
+import {
+	pod,
+	sandboxAllowedHost,
+	user,
+	workspace,
+	workspaceMember,
+} from "../../database/schema.ts";
 import { closeDatabase, onDatabase, runOnPostgres } from "../../database/testing.ts";
 import { PodSandboxes } from "../../sandboxes/pod-sandboxes.ts";
 import { SandboxProviderRepository } from "../../sandboxes/sandbox-provider-repository.ts";
@@ -95,7 +101,7 @@ describe.skipIf(!configured)("sandbox tools, against Postgres and OpenSandbox", 
 			Scope.provide(scope)(
 				sandboxTools.forTurn({ pod: thePod, turnId, threadId, agentId, model: "no-such-model" }),
 			),
-		);
+		).then((offered) => offered.tools);
 
 	const call = async (tools: ToolSet, name: string, input: object) => {
 		const execute = tools[name]?.execute;
@@ -146,6 +152,29 @@ describe.skipIf(!configured)("sandbox tools, against Postgres and OpenSandbox", 
 			const other = await toolsFor("turn-6", "thread-e", "agent-3");
 
 			expect(await run(other, "cat ~/memo")).toBe("remembered");
+		},
+		SLOW,
+	);
+
+	it(
+		"reaches the trusted hosts, and a host the workspace adds at once",
+		async () => {
+			const tools = await toolsFor("turn-8", "thread-g", "agent-5");
+			const reaches = async (host: string) =>
+				(await run(
+					tools,
+					`curl -s -o /dev/null --max-time 10 https://${host} && echo yes || echo no`,
+				)) === "yes";
+			expect([await reaches("github.com"), await reaches("example.com")]).toEqual([true, false]);
+
+			await onDatabase((db) =>
+				db
+					.insert(sandboxAllowedHost)
+					.values({ workspaceId: thePod.workspaceId, host: "example.com" }),
+			);
+			await runOnPostgres(podSandboxes.applyAllowedHosts(thePod.workspaceId));
+
+			expect(await reaches("example.com")).toBe(true);
 		},
 		SLOW,
 	);

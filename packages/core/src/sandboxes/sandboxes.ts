@@ -117,6 +117,8 @@ export const SandboxId = (id: string) => id as SandboxId;
 export interface Spec {
 	/** Written on the provider's record of the sandbox, so it can be found from the provider's side. */
 	readonly labels: Readonly<Record<string, string>>;
+	/** The hosts it may connect to; it is refused everything else. See {@link Sandbox.setAllowedHosts}. */
+	readonly allowedHosts: readonly string[];
 }
 
 export interface Opened {
@@ -145,6 +147,13 @@ export interface Sandbox {
 	 * WebSocket. Only Sugabots should be given it: it may need no credential.
 	 */
 	readonly endpoint: (port: number) => Effect.Effect<Endpoint, Unavailable>;
+	/**
+	 * Lets it connect to `hosts` and nothing else, in place of what it was
+	 * allowed before, while it runs and after a pause. A host is a domain name
+	 * or a leading wildcard such as `*.example.com`, which leaves the domain
+	 * itself out. Connections Sugabots makes to it are not affected.
+	 */
+	readonly setAllowedHosts: (hosts: readonly string[]) => Effect.Effect<void, Unavailable>;
 }
 
 export interface Endpoint {

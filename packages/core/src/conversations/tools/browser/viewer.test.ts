@@ -142,7 +142,7 @@ describe.skipIf(!configured)("the desktop viewer, against Postgres and OpenSandb
 					model: "no-such-model",
 				}),
 			),
-		);
+		).then((offered) => offered.tools);
 	}, SLOW);
 
 	afterAll(async () => {

@@ -1,4 +1,8 @@
-import type { NewSandboxProvider, SandboxProviderUpdate } from "@sugabots/contracts";
+import type {
+	NewSandboxProvider,
+	SandboxNetworkSettings,
+	SandboxProviderUpdate,
+} from "@sugabots/contracts";
 import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Effect } from "effect";
 import { client } from "@/api.ts";
@@ -133,4 +137,48 @@ export function usePrepareSandboxTemplate(providerId: string) {
 		onSuccess: (data) =>
 			queryClient.setQueryData(["sandbox-providers", workspaceId, providerId, "template"], data),
 	});
+}
+
+/** Where the workspace's sandboxes may connect to, and adding or removing a host. */
+export function useSandboxNetwork() {
+	const workspaceId = useWorkspace().workspace?.id;
+	const queryClient = useQueryClient();
+	const queryKey = ["sandbox-network", workspaceId];
+	function requiredWorkspace() {
+		if (!workspaceId) throw new NotReadyError();
+		return workspaceId;
+	}
+	const settings = useQuery({
+		queryKey,
+		queryFn: workspaceId
+			? ({ signal }) =>
+					Effect.runPromise(
+						client.api.sandboxProviders.network({ params: { workspace: workspaceId } }),
+						{ signal },
+					)
+			: skipToken,
+	});
+	const store = (next: SandboxNetworkSettings) => queryClient.setQueryData(queryKey, next);
+	return {
+		settings,
+		addHost: useMutation({
+			mutationFn: (host: string) =>
+				Effect.runPromise(
+					client.api.sandboxProviders.addHost({
+						params: { workspace: requiredWorkspace() },
+						payload: { host },
+					}),
+				),
+			onSuccess: store,
+		}),
+		removeHost: useMutation({
+			mutationFn: (host: string) =>
+				Effect.runPromise(
+					client.api.sandboxProviders.removeHost({
+						params: { workspace: requiredWorkspace(), host },
+					}),
+				),
+			onSuccess: store,
+		}),
+	};
 }

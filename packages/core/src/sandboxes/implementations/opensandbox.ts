@@ -63,6 +63,7 @@ export const fromOpenSandbox = (
 						// Kept until Sugabots destroys it: a pod's sandbox outlives any one turn.
 						timeoutSeconds: null,
 						metadata: { ...spec.labels },
+						networkPolicy: { defaultAction: "deny", egress: allowRules(spec.allowedHosts) },
 					});
 					await prepareAgentUser(sandbox);
 					return toSandbox(sandbox);
@@ -150,9 +151,34 @@ export const fromOpenSandbox = (
 					},
 					catch: unavailable,
 				}),
+			setAllowedHosts: (hosts) =>
+				Effect.tryPromise({
+					try: async () => {
+						const { egress = [] } = await sandbox.getEgressPolicy();
+						const stale = egress.filter((rule) => !hosts.includes(rule.target));
+						if (stale.length > 0) await sandbox.deleteEgressRules(stale.map((rule) => rule.target));
+						if (hosts.length > 0) await sandbox.patchEgressRules(allowRules(hosts));
+					},
+					catch: (cause) =>
+						new Sandboxes.Unavailable({
+							provider: "opensandbox",
+							cause,
+							// What the server answers for a sandbox made without a policy,
+							// which has no egress sidecar to set one in.
+							...(cause instanceof SandboxApiException && cause.statusCode === 502
+								? { reason: MADE_WITHOUT_NETWORK_RULES }
+								: {}),
+						}),
+				}),
 		};
 	}
 };
+
+function allowRules(hosts: readonly string[]) {
+	return hosts.map((host) => ({ action: "allow" as const, target: host }));
+}
+
+const MADE_WITHOUT_NETWORK_RULES = UserMessage.of`The pod's sandbox was made before sandboxes had network rules, so it can't be kept to them. Upgrade it under Sandbox in the pod's settings: its work is kept.`;
 
 async function run(
 	sandbox: OpenSandbox,

@@ -75,6 +75,36 @@ export const Waiting = meta.story({
 /** NotYoursToAnswer is the same request seen by someone who cannot answer it. */
 export const NotYoursToAnswer = meta.story({ args: { canApprove: false } });
 
+/** ANetworkRequest is an agent asking for its sandbox to reach a host, which a workspace admin answers. */
+export const ANetworkRequest = meta.story({
+	args: {
+		call: pending({
+			tool: "request_network_access",
+			input: {
+				host: "api.stripe.com",
+				reason: "Run the checkout integration tests against Stripe's test mode",
+			},
+			approval: {
+				status: "pending",
+				deciders: "sandbox-managers",
+				decidedByName: null,
+				decidedAt: null,
+			},
+		}),
+		look: undefined,
+	},
+});
+
+/** ANetworkRequestNotYours is that request seen by someone who doesn't manage sandboxes. */
+export const ANetworkRequestNotYours = meta.story({
+	args: { ...ANetworkRequest.input.args, canApprove: false },
+	play: async ({ canvas }) => {
+		await expect(
+			canvas.getByText("Waiting for a workspace admin to answer this."),
+		).toBeInTheDocument();
+	},
+});
+
 /** TheFullRequestOpened lays out everything it would send, behind the tool's name. */
 export const TheFullRequestOpened = meta.story({
 	args: {

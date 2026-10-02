@@ -5,6 +5,7 @@ import { Context, Data, DateTime, Duration, Effect, Layer, Semaphore } from "eff
 import { Database, query, serviceOperations } from "../database/database.ts";
 import { sandboxLease, sandbox as sandboxTable } from "../database/schema.ts";
 import { type UserFacing, UserMessage } from "../user-message.ts";
+import { allowedHostsOf } from "./allowed-hosts.ts";
 import { SandboxProviderRepository } from "./sandbox-provider-repository.ts";
 import { Sandboxes } from "./sandboxes.ts";
 
@@ -59,6 +60,12 @@ export interface Interface {
 		workspaceId: string,
 		provider: SandboxProviderRepository.Configured,
 	) => Effect.Effect<void, Sandboxes.Unavailable>;
+	/**
+	 * Keeps the workspace's running sandboxes to the hosts it allows now. A
+	 * paused one is kept to them when it is next opened; one that can't be
+	 * reached is logged and left for then too.
+	 */
+	readonly applyAllowedHosts: (workspaceId: string) => Effect.Effect<void>;
 	/** Whether `providerId` has made any sandbox that still exists. */
 	readonly anyMadeBy: (workspaceId: string, providerId: string) => Effect.Effect<boolean>;
 	/**
@@ -115,11 +122,20 @@ export const make = Effect.gen(function* () {
 	const forget = (podId: string) =>
 		query((db) => db.delete(sandboxTable).where(eq(sandboxTable.podId, podId)));
 
+	const specFor = (pod: Pod) =>
+		Effect.map(
+			allowedHostsOf(pod.workspaceId),
+			(allowedHosts): Sandboxes.Spec => ({
+				labels: { "sugabots.workspace": pod.workspaceId, "sugabots.pod": pod.podId },
+				allowedHosts,
+			}),
+		);
+
 	const made = (pod: Pod, provider: SandboxProviderRepository.Configured) =>
 		Effect.gen(function* () {
-			const sandbox = yield* sandboxes.forConnection(provider.connection).create({
-				labels: { "sugabots.workspace": pod.workspaceId, "sugabots.pod": pod.podId },
-			});
+			const sandbox = yield* sandboxes
+				.forConnection(provider.connection)
+				.create(yield* specFor(pod));
 			yield* query((db) =>
 				db.insert(sandboxTable).values({
 					workspaceId: pod.workspaceId,
@@ -165,6 +181,10 @@ export const make = Effect.gen(function* () {
 			}
 			const at = sandboxes.forConnection(provider.connection);
 			return yield* at.open(row.providerSandboxId).pipe(
+				// What the workspace allows may have changed since the sandbox last ran.
+				Effect.tap(({ sandbox }) =>
+					Effect.flatMap(allowedHostsOf(pod.workspaceId), sandbox.setAllowedHosts),
+				),
 				Effect.map(
 					({ sandbox, resumed }): Opened => ({
 						sandbox,
@@ -375,6 +395,41 @@ export const make = Effect.gen(function* () {
 				}),
 			),
 
+		applyAllowedHosts: (workspaceId) =>
+			operation(
+				"applyAllowedHosts",
+				Effect.gen(function* () {
+					const running = yield* query((db) =>
+						db
+							.select()
+							.from(sandboxTable)
+							.where(and(eq(sandboxTable.workspaceId, workspaceId), isNull(sandboxTable.pausedAt))),
+					);
+					const hosts = yield* allowedHostsOf(workspaceId);
+					for (const row of running) {
+						yield* oneAtATime(row.podId)(
+							Effect.gen(function* () {
+								const configured = yield* providers.connection(workspaceId, row.sandboxProviderId);
+								if (!configured) return;
+								const { sandbox } = yield* sandboxes
+									.forConnection(configured.connection)
+									.open(row.providerSandboxId);
+								yield* sandbox.setAllowedHosts(hosts);
+							}),
+						).pipe(
+							Effect.catchTags({
+								SandboxMissing: () => Effect.void,
+								SandboxUnavailable: (failure) =>
+									Effect.logWarning(
+										"Could not apply the workspace's allowed hosts to a sandbox; it gets them when next opened",
+										failure,
+									),
+							}),
+						);
+					}
+				}),
+			),
+
 		anyMadeBy: (workspaceId, providerId) =>
 			operation(
 				"anyMadeBy",
@@ -482,9 +537,7 @@ export const make = Effect.gen(function* () {
 							),
 						);
 						const to = sandboxes.forConnection(provider.connection);
-						const fresh = yield* to.create({
-							labels: { "sugabots.workspace": pod.workspaceId, "sugabots.pod": pod.podId },
-						});
+						const fresh = yield* to.create(yield* specFor(pod));
 						const unpacked = yield* fresh.writeFile(ARCHIVE, archive).pipe(
 							Effect.andThen(
 								fresh.exec(
