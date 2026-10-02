@@ -7,6 +7,7 @@ import { Chats } from "@sugabots/core/conversations/chats/chats";
 import { ModelTrials } from "@sugabots/core/conversations/model-trials/model-trials";
 import { Routines } from "@sugabots/core/conversations/routines/routines";
 import { ThreadView } from "@sugabots/core/conversations/thread-view";
+import { DesktopViewer } from "@sugabots/core/conversations/tools/browser/viewer";
 import { Turns } from "@sugabots/core/conversations/turns/turns";
 import { EventBus } from "@sugabots/core/database/events/bus";
 import { EventStore } from "@sugabots/core/database/events/store";
@@ -32,7 +33,7 @@ import type { HttpServices } from "./services.ts";
 /** The test API's address. */
 export const BASE_URL = "http://localhost:3000";
 /** Where the test app's web app is served, a browser origin it trusts besides its own. */
-const WEB_ORIGIN = "http://localhost:5173";
+export const WEB_ORIGIN = "http://localhost:5173";
 
 export interface TestApp {
 	/** A request to `path` under `API_BASE_PATH`, e.g. `/agents/…`. */
@@ -53,16 +54,25 @@ type TestServices = HttpServices | Authentication.Service | Installation.Service
 export function createTestApp<Provided extends TestServices = never>(
 	services?: Layer.Layer<Provided>,
 ): TestApp {
-	const routes = apiLayer.pipe(
-		Layer.provide(Layer.merge(fakes, services ?? Layer.empty)),
-		Layer.provide([noDatabase, HttpServer.layerServices]),
-	);
-	const { handler } = HttpRouter.toWebHandler(routes, { disableLogger: true });
+	const { handler } = HttpRouter.toWebHandler(testRoutes(services), { disableLogger: true });
 	return {
 		request: (path, init) =>
 			handler(new Request(new URL(`${API_BASE_PATH}${path}`, BASE_URL), init)),
 		fetch: (request) => handler(request),
 	};
+}
+
+/**
+ * The route table `createTestApp` drives, for a case that serves it on a real
+ * port, such as one about WebSockets.
+ */
+export function testRoutes<Provided extends TestServices = never>(
+	services?: Layer.Layer<Provided>,
+) {
+	return apiLayer.pipe(
+		Layer.provide(Layer.merge(fakes, services ?? Layer.empty)),
+		Layer.provide([noDatabase, HttpServer.layerServices]),
+	);
 }
 
 /** `Authentication` asking `resolveUser` who holds a request's credentials. */
@@ -95,6 +105,7 @@ const fakes: Layer.Layer<TestServices> = Layer.mergeAll(
 	unimplemented(ModelProviderSetup.Service),
 	unimplemented(SearchProviderSetup.Service),
 	unimplemented(SandboxProviderSetup.Service),
+	unimplemented(DesktopViewer.Service),
 	unimplemented(ConnectionSetup.Service),
 	unimplemented(ModelTrials.Service),
 	unimplemented(Usage.Service),

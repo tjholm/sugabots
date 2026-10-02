@@ -73,7 +73,8 @@ describe.skipIf(!configured)("sandbox tools, against Postgres and OpenSandbox", 
 					enabled: true,
 					baseUrl: env.OPENSANDBOX_URL,
 					apiKey: env.OPENSANDBOX_API_KEY,
-					image: "debian:bookworm-slim",
+					// The default image, for its browser: `bun run build:sandbox` first.
+					image: "sugabots-sandbox:latest",
 				},
 			}),
 		);
@@ -91,7 +92,9 @@ describe.skipIf(!configured)("sandbox tools, against Postgres and OpenSandbox", 
 
 	const toolsFor = (turnId: string, threadId: string, agentId: string) =>
 		runOnPostgres(
-			Scope.provide(scope)(sandboxTools.forTurn({ pod: thePod, turnId, threadId, agentId })),
+			Scope.provide(scope)(
+				sandboxTools.forTurn({ pod: thePod, turnId, threadId, agentId, model: "no-such-model" }),
+			),
 		);
 
 	const call = async (tools: ToolSet, name: string, input: object) => {
@@ -143,6 +146,23 @@ describe.skipIf(!configured)("sandbox tools, against Postgres and OpenSandbox", 
 			const other = await toolsFor("turn-6", "thread-e", "agent-3");
 
 			expect(await run(other, "cat ~/memo")).toBe("remembered");
+		},
+		SLOW,
+	);
+
+	it(
+		"drives a browser of the agent's own, and leaves out screenshots for a model that can't see them",
+		async () => {
+			const tools = await toolsFor("turn-7", "thread-f", "agent-4");
+
+			const opened = await call(tools, "browser_navigate", {
+				url: "data:text/html,<title>Sugabots</title><h1>Hello from the sandbox</h1>",
+			});
+			const snapshot = await call(tools, "browser_snapshot", {});
+
+			expect(String(opened.text)).toContain("Your browser has just started");
+			expect(String(snapshot.text)).toContain("Hello from the sandbox");
+			expect(tools.browser_take_screenshot).toBeUndefined();
 		},
 		SLOW,
 	);

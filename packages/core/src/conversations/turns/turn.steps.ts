@@ -395,6 +395,7 @@ const streamReply = (
 						turnId: prepared.turnId,
 						threadId: prepared.context.thread.id,
 						agentId: prepared.context.agent.id,
+						model: prepared.context.agent.model,
 					})
 				: {};
 			// The connections' sessions live as long as the turn.

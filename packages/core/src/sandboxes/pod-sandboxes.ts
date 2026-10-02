@@ -35,6 +35,15 @@ export interface Interface {
 		provider: SandboxProviderRepository.Configured,
 		holder: string,
 	) => Effect.Effect<Opened, Sandboxes.Unavailable>;
+	/**
+	 * The pod's sandbox as it is, for watching: never made or replaced, and
+	 * resumed only if it was paused. Undefined when the pod has none, or its
+	 * provider has lost it. `holder` keeps it awake until released.
+	 */
+	readonly watch: (
+		pod: Pod,
+		holder: string,
+	) => Effect.Effect<Sandboxes.Sandbox | undefined, Sandboxes.Unavailable>;
 	/** Extends `holder`'s leases. Nothing happens if it has none. */
 	readonly renew: (holder: string) => Effect.Effect<void>;
 	/** Ends `holder`'s leases, starting the idle time of the sandboxes it held. */
@@ -229,6 +238,28 @@ export const make = Effect.gen(function* () {
 			operation(
 				"open",
 				oneAtATime(pod.podId)(Effect.tap(opened(pod, provider), () => lease(pod, holder))),
+			),
+
+		watch: (pod, holder) =>
+			operation(
+				"watch",
+				oneAtATime(pod.podId)(
+					Effect.gen(function* () {
+						const row = yield* recorded(pod);
+						if (!row) return undefined;
+						const configured = yield* providers.connection(row.workspaceId, row.sandboxProviderId);
+						if (!configured) return undefined;
+						const watched = yield* sandboxes
+							.forConnection(configured.connection)
+							.open(row.providerSandboxId)
+							.pipe(
+								Effect.map(({ sandbox }) => sandbox),
+								Effect.catchTag("SandboxMissing", () => Effect.succeed(undefined)),
+							);
+						if (watched) yield* lease(pod, holder);
+						return watched;
+					}),
+				),
 			),
 
 		renew: (holder) =>

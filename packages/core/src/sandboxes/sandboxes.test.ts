@@ -20,7 +20,8 @@ const connections: ReadonlyArray<[string, Sandboxes.Connection | undefined]> = [
 					provider: "opensandbox",
 					baseUrl: env.OPENSANDBOX_URL,
 					apiKey: Redacted.make(env.OPENSANDBOX_API_KEY),
-					image: "debian:bookworm-slim",
+					// Debian with Python, for a web server to reach.
+					image: "python:3.13-slim",
 				}
 			: undefined,
 	],
@@ -130,6 +131,25 @@ describe.each(connections)("%s sandboxes", (_, connection) => {
 
 			expect(failureTag(exit)).toBe("SandboxFileFailed");
 		});
+
+		it(
+			"reaches a port inside the sandbox",
+			async () => {
+				await run(
+					sandbox.exec(
+						"echo reached > reached.txt && (nohup python3 -m http.server 9001 >/dev/null 2>&1 &) && sleep 2",
+						EXEC,
+					),
+				);
+				const endpoint = await run(sandbox.endpoint(9001));
+
+				const response = await fetch(`${endpoint.url}/reached.txt`, { headers: endpoint.headers });
+
+				expect(response.status).toBe(200);
+				expect((await response.text()).trim()).toBe("reached");
+			},
+			SLOW,
+		);
 
 		it(
 			"keeps files across a pause, and says when opening resumed it",

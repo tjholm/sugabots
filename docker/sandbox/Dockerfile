@@ -1,6 +1,7 @@
 # The default sandbox image: Debian with what agents reach for when they work
-# on code, and a desktop they can start when a task needs a screen. Commands
-# run without one; `sugabots-desktop start` gives a turn its own display.
+# on code, and desktops with a browser they drive through Playwright MCP.
+# Commands run without a screen; `sugabots-desktop` starts a desktop, each on
+# its own display.
 #
 #   bun run build:sandbox
 #
@@ -10,6 +11,7 @@
 
 ARG NOVNC_VERSION=1.6.0
 ARG WEBSOCKIFY_VERSION=0.13.0
+ARG PLAYWRIGHT_MCP_VERSION=0.0.83
 
 # Upstream noVNC and websockify rather than Debian's packages, which bring
 # Node.js, numpy and OpenStack's libraries for a static page and a proxy.
@@ -26,6 +28,15 @@ RUN apt-get update \
 	&& rm -rf /novnc/docs /novnc/tests /novnc/snap /novnc/utils /websockify/tests /websockify/docs \
 	&& ln -s vnc.html /novnc/index.html
 
+# The desktop's wallpaper, rendered at the display's size, so the renderer
+# doesn't ship in the image.
+FROM debian:trixie-slim AS wallpaper
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends librsvg2-bin \
+	&& rm -rf /var/lib/apt/lists/*
+COPY wallpaper.svg /wallpaper.svg
+RUN rsvg-convert --width 1280 --height 800 /wallpaper.svg --output /wallpaper.png
+
 FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PYTHONPATH=/opt/websockify
@@ -40,12 +51,19 @@ RUN apt-get update \
 		python3 python3-pip python3-venv \
 		nodejs npm \
 		xvfb x11vnc x11-utils openbox xterm xfonts-base dbus-x11 hsetroot \
-		firefox-esr xdotool scrot xclip fonts-dejavu fonts-noto-color-emoji \
+		firefox-esr chromium xdotool scrot xclip fonts-dejavu fonts-noto-color-emoji \
 	&& ln -s /usr/bin/fdfind /usr/local/bin/fd \
 	&& rm -rf /var/lib/apt/lists/*
 
+# The browser agents drive: Playwright MCP, on Debian's Chromium rather than
+# a browser Playwright downloads.
+ARG PLAYWRIGHT_MCP_VERSION
+RUN npm install --global --omit=dev "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" \
+	&& npm cache clean --force
+
 COPY --from=novnc /novnc /opt/novnc
 COPY --from=novnc /websockify /opt/websockify
+COPY --from=wallpaper /wallpaper.png /usr/share/sugabots-desktop/wallpaper.png
 COPY sugabots-desktop /usr/local/bin/sugabots-desktop
 
 # The agents' user: uid 1000, as the sandbox providers expect. Which user a

@@ -111,6 +111,18 @@ export interface Sandbox {
 		path: string,
 		content: Uint8Array,
 	) => Effect.Effect<void, FileFailed | Unavailable>;
+	/**
+	 * Where Sugabots reaches `port` inside the sandbox, over HTTP or a
+	 * WebSocket. Only Sugabots should be given it: it may need no credential.
+	 */
+	readonly endpoint: (port: number) => Effect.Effect<Endpoint, Unavailable>;
+}
+
+export interface Endpoint {
+	/** The port's root, such as `http://172.17.0.1:50699/proxy/8931`, without a trailing slash. */
+	readonly url: string;
+	/** Headers every request to it must carry. */
+	readonly headers: Readonly<Record<string, string>>;
 }
 
 export interface ExecOptions {
