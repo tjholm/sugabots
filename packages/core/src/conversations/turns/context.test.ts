@@ -256,6 +256,7 @@ function context(): TurnContext {
 			prompt: "Check facts carefully.",
 			disabledTools: [],
 			interviewing: false,
+			usesSandbox: false,
 		},
 		reason: "default",
 		routing: { facilitator: false },

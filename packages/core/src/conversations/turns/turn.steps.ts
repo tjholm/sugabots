@@ -25,6 +25,7 @@ import { ConversationEvent } from "../events.ts";
 import { BuiltInTools } from "../tools/built-in.ts";
 import { Collaborations } from "../tools/collaborate/collaborations.ts";
 import { ConnectionTools } from "../tools/connections.ts";
+import { SandboxTools } from "../tools/sandbox.ts";
 import { ApprovedToolCalls, type ToolApprovalsIncomplete } from "./approvals/approved-calls.ts";
 import { modelPrompt, type TurnEnvironment } from "./context.ts";
 import {
@@ -69,6 +70,7 @@ const TURN_MODEL_CALLS = 20;
 type SegmentServices =
 	| Models.Service
 	| BuiltInTools.Service
+	| SandboxTools.Service
 	| ConnectionTools.Service
 	| EventBus.Service
 	| TurnExecution.Service
@@ -366,6 +368,7 @@ const streamReply = (
 			const toolCalls = yield* ToolCallRepository.Service;
 			const collaborations = yield* Collaborations.Service;
 			const approvals = yield* ApprovedToolCalls.Service;
+			const sandboxTools = yield* SandboxTools.Service;
 			const agents = yield* AgentRepository.Service;
 			const signal = yield* Effect.abortSignal;
 
@@ -386,6 +389,17 @@ const streamReply = (
 				yield* builtInTools.forWorkspace(prepared.context.thread.workspaceId),
 				prepared.context.agent.disabledTools,
 			);
+			const sandbox = prepared.context.agent.usesSandbox
+				? yield* sandboxTools.forTurn({
+						pod: {
+							workspaceId: prepared.context.thread.workspaceId,
+							podId: prepared.context.agent.podId,
+						},
+						turnId: prepared.turnId,
+						threadId: prepared.context.thread.id,
+						agentId: prepared.context.agent.id,
+					})
+				: {};
 			// The connections' sessions live as long as the turn.
 			const connections = yield* Effect.acquireRelease(
 				connectionTools.forPod(prepared.context.thread.workspaceId, prepared.context.agent.podId),
@@ -413,6 +427,7 @@ const streamReply = (
 				approvals,
 				approvalBoundTools,
 				builtIn,
+				sandbox,
 				connections: connections.tools,
 				agents,
 				bus: events,
