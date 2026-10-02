@@ -25,6 +25,7 @@ import { onboardingRoutes } from "../routes/onboarding/routes.ts";
 import { podRoutes } from "../routes/pods/routes.ts";
 import { referralRoutes } from "../routes/referrals/routes.ts";
 import { routineRoutes } from "../routes/routines/routes.ts";
+import { sandboxProviderRoutes } from "../routes/sandbox-providers/routes.ts";
 import { searchProviderRoutes } from "../routes/search-providers/routes.ts";
 import { systemRoutes } from "../routes/system/routes.ts";
 import { systemAgentRoutes } from "../routes/system-agents/routes.ts";
@@ -80,6 +81,7 @@ export const apiLayer: Layer.Layer<never, never, HttpServices | ApiInfrastructur
 				modelTrialRoutes,
 				modelProviderRoutes,
 				searchProviderRoutes,
+				sandboxProviderRoutes,
 				connectionRoutes,
 				agentRoutes,
 				chatRoutes,

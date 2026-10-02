@@ -57,6 +57,7 @@ function bot(name: string, home: Pod, color: AgentColor, face: AgentFace = "pill
 		model: "claude-sonnet-4-20250514",
 		prompt: "",
 		disabledTools: [],
+		usesSandbox: false,
 		createdAt: "2026-09-01T00:00:00.000Z",
 	};
 }

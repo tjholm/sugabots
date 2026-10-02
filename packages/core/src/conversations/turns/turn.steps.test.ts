@@ -14,6 +14,7 @@ import { AgentRepository } from "../../workspaces/agents/agent-repository.ts";
 import { BuiltInTools } from "../tools/built-in.ts";
 import { Collaborations } from "../tools/collaborate/collaborations.ts";
 import { ConnectionTools } from "../tools/connections.ts";
+import { SandboxTools } from "../tools/sandbox.ts";
 import {
 	ApprovedToolCalls,
 	ToolApprovalsIncomplete,
@@ -81,6 +82,7 @@ const prepared: PreparedTurn = {
 			prompt: "",
 			disabledTools: [],
 			interviewing: false,
+			usesSandbox: false,
 		},
 		reason: "default",
 		routing: { facilitator: false },
@@ -520,6 +522,7 @@ function segmentWith(given: Given) {
 				Layer.succeed(Models.Service, given.model),
 				Layer.succeed(EventBus.Service, given.events),
 				Layer.succeed(BuiltInTools.Service, given.builtInTools ?? BuiltInTools.none),
+				Layer.succeed(SandboxTools.Service, SandboxTools.none),
 				Layer.succeed(ConnectionTools.Service, given.connectionTools ?? ConnectionTools.none),
 				unimplemented(TurnExecution.Service, given.execution),
 				unimplemented(TurnRepository.Service, given.turns),

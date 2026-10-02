@@ -1,0 +1,91 @@
+import type { SandboxProviderPresetId } from "@sugabots/contracts";
+import { sql } from "drizzle-orm";
+import {
+	boolean,
+	check,
+	foreignKey,
+	pgTable,
+	text,
+	timestamp,
+	uniqueIndex,
+	uuid,
+} from "drizzle-orm/pg-core";
+import { primaryKey, stamp, updatedStamp } from "../database/sql.ts";
+import { pod, user, workspace } from "../workspaces/sql.ts";
+import type { Sandboxes } from "./sandboxes.ts";
+
+/**
+ * A sandbox provider a workspace has configured: an account at a service that
+ * makes Linux machines. A workspace may have several, but at most one is
+ * enabled, and that one makes its pods' sandboxes.
+ */
+export const sandboxProvider = pgTable(
+	"sandbox_provider",
+	{
+		id: primaryKey(),
+		workspaceId: uuid("workspace_id")
+			.notNull()
+			.references(() => workspace.id, { onDelete: "cascade" }),
+		preset: text("preset").$type<SandboxProviderPresetId>().notNull(),
+		/** OpenSandbox's server, or E2B Embed's API; null for E2B Cloud. */
+		baseUrl: text("base_url"),
+		/** E2B Embed's address for reaching sandboxes; null otherwise. */
+		sandboxUrl: text("sandbox_url"),
+		/**
+		 * The image or template sandboxes are made from; null follows the
+		 * preset's default, so a new default reaches every provider not set to
+		 * something else.
+		 */
+		image: text("image"),
+		enabled: boolean("enabled").notNull().default(false),
+		apiKeyEncrypted: text("api_key_encrypted"),
+		lastTestedAt: timestamp("last_tested_at", { withTimezone: true }),
+		lastTestError: text("last_test_error"),
+		createdById: uuid("created_by_id").references(() => user.id, { onDelete: "set null" }),
+		createdAt: stamp("created_at"),
+		updatedAt: updatedStamp("updated_at"),
+	},
+	(table) => [
+		uniqueIndex("sandbox_provider_enabled_idx").on(table.workspaceId).where(sql`${table.enabled}`),
+		uniqueIndex("sandbox_provider_id_workspace_id_idx").on(table.id, table.workspaceId),
+		check("sandbox_provider_preset_check", sql`${table.preset} in ('opensandbox', 'e2b')`),
+	],
+);
+
+export type SandboxProviderRow = typeof sandboxProvider.$inferSelect;
+
+/**
+ * A pod's sandbox: the machine its agents run commands on, at the provider
+ * that made it. One per pod, made the first time an agent there needs it.
+ */
+export const sandbox = pgTable(
+	"sandbox",
+	{
+		id: primaryKey(),
+		workspaceId: uuid("workspace_id").notNull(),
+		podId: uuid("pod_id").notNull(),
+		/**
+		 * The provider that made it. A provider is removed only after its
+		 * sandboxes are destroyed, so this never points at nothing.
+		 */
+		sandboxProviderId: uuid("sandbox_provider_id").notNull(),
+		/** The provider's own id for it. */
+		providerSandboxId: text("provider_sandbox_id").$type<Sandboxes.SandboxId>().notNull(),
+		createdAt: stamp("created_at"),
+	},
+	(table) => [
+		foreignKey({
+			columns: [table.podId, table.workspaceId],
+			foreignColumns: [pod.id, pod.workspaceId],
+			name: "sandbox_pod_workspace_fkey",
+		}).onDelete("cascade"),
+		foreignKey({
+			columns: [table.sandboxProviderId, table.workspaceId],
+			foreignColumns: [sandboxProvider.id, sandboxProvider.workspaceId],
+			name: "sandbox_provider_workspace_fkey",
+		}),
+		uniqueIndex("sandbox_pod_id_idx").on(table.podId),
+	],
+);
+
+export type SandboxRow = typeof sandbox.$inferSelect;

@@ -9,6 +9,7 @@ import { OnboardingApi } from "./groups/onboarding.ts";
 import { PodsApi } from "./groups/pods.ts";
 import { ReferralsApi } from "./groups/referrals.ts";
 import { RoutinesApi } from "./groups/routines.ts";
+import { SandboxProvidersApi } from "./groups/sandbox-providers.ts";
 import { SearchProvidersApi } from "./groups/search-providers.ts";
 import { SystemApi } from "./groups/system.ts";
 import { SystemAgentsApi } from "./groups/system-agents.ts";
@@ -38,6 +39,7 @@ export class Api extends HttpApi.make("sugabots")
 	.add(ModelTrialsApi)
 	.add(ModelProvidersApi)
 	.add(SearchProvidersApi)
+	.add(SandboxProvidersApi)
 	.add(ConnectionsApi)
 	.add(EventsApi)
 	.add(ChatsApi)
