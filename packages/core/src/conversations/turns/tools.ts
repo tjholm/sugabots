@@ -10,6 +10,7 @@ import type { Collaborations } from "../tools/collaborate/collaborations.ts";
 import { collaborateTool } from "../tools/collaborate/tool.ts";
 import type { OfferedTool } from "../tools/connections.ts";
 import { READ_FILE_TOOL } from "../tools/sandbox/tools.ts";
+import type { SandboxTools } from "../tools/sandbox.ts";
 import { SAVE_INSTRUCTIONS_TOOL, saveInstructionsTool } from "../tools/save-instructions/tool.ts";
 import { searchHistoryTool } from "../tools/search-history/tool.ts";
 import type { ApprovedToolCalls } from "./approvals/approved-calls.ts";
@@ -45,6 +46,8 @@ export interface ToolDependencies {
 	builtIn: ToolSet;
 	/** The tools that work in the pod's sandbox, when the installation has sandboxes. */
 	sandbox?: ToolSet;
+	/** Built-in tools whose every call waits for a person to allow it, unless it is refused outright. */
+	requests?: Readonly<Record<string, SandboxTools.Request>>;
 	/** The pod connections' tools, keyed `handle__tool`, each with whether it changes things. */
 	connections?: Record<string, OfferedTool>;
 	/** Where an interviewing agent's own instructions are saved. */
@@ -95,6 +98,24 @@ export function toolsForTurn(prepared: PreparedTurn, deps: ToolDependencies): To
 	for (const [key, tool] of Object.entries(deps.sandbox ?? {})) {
 		tools[key] = recorded(key, tool, { ...recording, mutating: key !== READ_FILE_TOOL });
 	}
+	// What a request does once allowed changes something, so a turn that fails
+	// afterwards is not run again.
+	for (const [key, request] of Object.entries(deps.requests ?? {})) {
+		const asked = recorded(key, request.tool, {
+			...recording,
+			mutating: true,
+			approval: { approvals: deps.approvals, binding: { kind: "built-in" } },
+		});
+		// A refused call was never put to anyone, so it has no approval to run under.
+		tools[key] = {
+			...asked,
+			execute: (input, options) => {
+				const reason = request.refusal(input);
+				const call = reason ? refused(key, request.tool, reason, recording) : asked;
+				return call.execute?.(input, options);
+			},
+		};
+	}
 	for (const [key, offered] of Object.entries(deps.connections ?? {})) {
 		const approvalBound = deps.approvalBoundTools?.has(key) ?? false;
 		// An approved call is left to its approval, which refuses it if the tool
@@ -108,12 +129,7 @@ export function toolsForTurn(prepared: PreparedTurn, deps: ToolDependencies): To
 			mutating: offered.mutating || approvalBound,
 			...(offered.access === "ask" || approvalBound
 				? {
-						approval: {
-							approvals: deps.approvals,
-							connectionId: offered.connectionId,
-							connectionRevision: offered.connectionRevision,
-							remoteToolName: offered.remoteToolName,
-						},
+						approval: { approvals: deps.approvals, binding: bindingOf(offered) },
 					}
 				: {}),
 		});
@@ -157,4 +173,14 @@ export function toolsForTurn(prepared: PreparedTurn, deps: ToolDependencies): To
 		});
 	}
 	return tools;
+}
+
+/** What a call to a connection's tool is approved against: the connection as it is configured now. */
+export function bindingOf(offered: OfferedTool): ToolCallRepository.ApprovalBinding {
+	return {
+		kind: "connection",
+		connectionId: offered.connectionId,
+		connectionRevision: offered.connectionRevision,
+		remoteToolName: offered.remoteToolName,
+	};
 }

@@ -1,5 +1,5 @@
 import { streamEvent, threadChannel } from "@sugabots/contracts";
-import type { ToolSet } from "ai";
+import type { ToolApprovalConfiguration, ToolSet } from "ai";
 import {
 	Cause,
 	Clock,
@@ -43,7 +43,7 @@ import {
 	TurnRepository,
 } from "./repository.ts";
 import { ToolCallRepository } from "./tool-calls/repository.ts";
-import { toolsForTurn } from "./tools.ts";
+import { bindingOf, toolsForTurn } from "./tools.ts";
 import { type SegmentOutcome, TurnSteps } from "./turn.workflow.ts";
 
 /** Token deltas are batched so a fast model does not publish per token. */
@@ -364,11 +364,11 @@ const streamReply = (
 			const events = yield* EventBus.Service;
 			const builtInTools = yield* BuiltInTools.Service;
 			const connectionTools = yield* ConnectionTools.Service;
+			const sandboxTools = yield* SandboxTools.Service;
 			const turns = yield* TurnRepository.Service;
 			const toolCalls = yield* ToolCallRepository.Service;
 			const collaborations = yield* Collaborations.Service;
 			const approvals = yield* ApprovedToolCalls.Service;
-			const sandboxTools = yield* SandboxTools.Service;
 			const agents = yield* AgentRepository.Service;
 			const signal = yield* Effect.abortSignal;
 
@@ -399,7 +399,7 @@ const streamReply = (
 						threadId: prepared.context.thread.id,
 						agentId: prepared.context.agent.id,
 					})
-				: {};
+				: SandboxTools.NOTHING;
 			// The connections' sessions live as long as the turn.
 			const connections = yield* Effect.acquireRelease(
 				connectionTools.forPod(prepared.context.thread.workspaceId, prepared.context.agent.podId),
@@ -407,6 +407,12 @@ const streamReply = (
 			);
 			const approvalBoundTools = new Set<string>();
 			for (const binding of prepared.checkpoint?.approvals ?? []) {
+				if ("builtIn" in binding) {
+					if (!sandbox.requests[binding.tool]) {
+						return yield* new ApprovedToolChanged({ tool: binding.tool });
+					}
+					continue;
+				}
 				const offered = connections.tools[binding.tool];
 				if (
 					!offered ||
@@ -418,16 +424,29 @@ const streamReply = (
 				}
 				approvalBoundTools.add(binding.tool);
 			}
-			const toolsNeedingApproval = Object.entries(connections.tools)
-				.filter(([, offered]) => offered.access === "ask")
-				.map(([key]) => key);
+			const toolApproval: ToolApprovalConfiguration<ToolSet, unknown> = {
+				...Object.fromEntries(
+					Object.entries(connections.tools)
+						.filter(([, offered]) => offered.access === "ask")
+						.map(([key]) => [key, "user-approval"]),
+				),
+				// A request refused outright runs at once, to be recorded as refused.
+				...Object.fromEntries(
+					Object.entries(sandbox.requests).map(([key, request]) => [
+						key,
+						(input: unknown) =>
+							request.refusal(input) === undefined ? "user-approval" : "not-applicable",
+					]),
+				),
+			};
 			const tools = toolsForTurn(prepared, {
 				collaborations,
 				calls: toolCalls,
 				approvals,
 				approvalBoundTools,
 				builtIn,
-				sandbox,
+				sandbox: sandbox.tools,
+				requests: sandbox.requests,
 				connections: connections.tools,
 				agents,
 				bus: events,
@@ -491,7 +510,7 @@ const streamReply = (
 				messages: modelInput.messages,
 				continuationMessages: segmentMessages,
 				tools,
-				toolApproval: Object.fromEntries(toolsNeedingApproval.map((key) => [key, "user-approval"])),
+				toolApproval,
 				maxSteps: Math.max(1, TURN_MODEL_CALLS - (prepared.checkpoint?.modelCalls ?? 0)),
 			});
 
@@ -512,23 +531,29 @@ const streamReply = (
 				const atOffset = (yield* Ref.get(reply)).content.length;
 				const ids = yield* Ids.Service;
 				const pending = yield* Effect.forEach(finished.approvalRequests, (request) => {
-					const offered = connections.tools[request.toolCall.toolName];
-					if (offered?.access !== "ask") {
-						return Effect.fail(new ApprovalForUnknownTool({ tool: request.toolCall.toolName }));
-					}
-					return Effect.map(ids.next, (id) => ({
-						id,
-						approvalId: request.approvalId,
-						sdkToolCallId: request.toolCall.toolCallId,
-						tool: request.toolCall.toolName,
-						input: request.toolCall.input,
-						reason: request.reason,
-						connectionId: offered.connectionId,
-						connectionRevision: offered.connectionRevision,
-						remoteToolName: offered.remoteToolName,
-						mutating: offered.mutating,
-						atOffset,
-					}));
+					const tool = request.toolCall.toolName;
+					const offered = connections.tools[tool];
+					const asked:
+						| Pick<ToolCallRepository.PendingToolApproval, "binding" | "mutating">
+						| undefined = sandbox.requests[tool]
+						? { binding: { kind: "built-in" }, mutating: true }
+						: offered?.access === "ask"
+							? { binding: bindingOf(offered), mutating: offered.mutating }
+							: undefined;
+					if (!asked) return Effect.fail(new ApprovalForUnknownTool({ tool }));
+					return Effect.map(
+						ids.next,
+						(id): ToolCallRepository.PendingToolApproval => ({
+							id,
+							approvalId: request.approvalId,
+							sdkToolCallId: request.toolCall.toolCallId,
+							tool,
+							input: request.toolCall.input,
+							reason: request.reason,
+							...asked,
+							atOffset,
+						}),
+					);
 				});
 				// Only the checkpoint's reply places the calls: they exist once the
 				// turn suspends, and a turn that may not suspend ends with the reply
@@ -546,13 +571,17 @@ const streamReply = (
 					approvals: pending,
 					checkpoint: {
 						messages: [...segmentMessages, ...finished.responseMessages],
-						approvals: pending.map((request) => ({
-							approvalId: request.approvalId,
-							tool: request.tool,
-							connectionId: request.connectionId,
-							connectionRevision: request.connectionRevision,
-							remoteToolName: request.remoteToolName,
-						})),
+						approvals: pending.map(({ approvalId, tool, binding }) =>
+							binding.kind === "connection"
+								? {
+										approvalId,
+										tool,
+										connectionId: binding.connectionId,
+										connectionRevision: binding.connectionRevision,
+										remoteToolName: binding.remoteToolName,
+									}
+								: { approvalId, tool, builtIn: true as const },
+						),
 						modelInput,
 						reply: suspendedReply,
 						modelCalls: (prepared.checkpoint?.modelCalls ?? 0) + finished.modelCalls,

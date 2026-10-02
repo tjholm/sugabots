@@ -99,7 +99,7 @@ describe.skipIf(!configured)("sandbox tools, against Postgres and OpenSandbox", 
 	const toolsFor = (turnId: string, threadId: string, agentId: string) =>
 		runOnPostgres(
 			Scope.provide(scope)(sandboxTools.forTurn({ pod: thePod, turnId, threadId, agentId })),
-		);
+		).then((offered) => offered.tools);
 
 	const call = async (tools: ToolSet, name: string, input: object) => {
 		const execute = tools[name]?.execute;
