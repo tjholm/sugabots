@@ -5,6 +5,7 @@ import { Fragment, type ReactNode, useId, useRef, useState } from "react";
 import type { ConnectionLook } from "@/lib/connections.ts";
 import { failureMessage } from "@/lib/failure.ts";
 import { useReviewToolCall } from "@/lib/threads.ts";
+import { awaitedDeciders } from "@/lib/tool-approvals.ts";
 import { connectionLabel, splitToolKey, stepLabel, wordsFromKey } from "@/lib/tool-names.ts";
 import { Button } from "@/ui/button.tsx";
 import { ConnectionMark } from "@/ui/connection-mark.tsx";
@@ -64,9 +65,7 @@ export function ToolApprovalCard({
 			onAllow={() => review.mutate({ toolCallId: call.id, decision: "allow_once" })}
 		/>
 	) : (
-		<p className="m-0 text-muted-foreground text-xs">
-			Waiting for someone with permission to answer this.
-		</p>
+		<p className="m-0 text-muted-foreground text-xs">{awaitedDeciders(call)}</p>
 	);
 	return (
 		<section
@@ -133,7 +132,7 @@ export function PinnedApproval({
 	if (!canApprove) {
 		return (
 			<p className="m-0 px-4 pt-2 pb-4 text-center text-muted-foreground text-sm">
-				Waiting for someone with permission to answer this.
+				{awaitedDeciders(call)}
 			</p>
 		);
 	}

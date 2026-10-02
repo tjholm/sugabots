@@ -7,7 +7,7 @@ import type { AuthorizationDenied } from "../authorization/access.ts";
 import { Authorization } from "../authorization/authorization.ts";
 import type { CurrentActor } from "../authorization/current-actor.ts";
 import { query, serviceOperations } from "../database/database.ts";
-import { sandboxAllowedHost, user } from "../database/schema.ts";
+import { sandboxAllowedHost, thread, toolCall, user } from "../database/schema.ts";
 import { addedHostsOf, TRUSTED_HOSTS } from "./allowed-hosts.ts";
 import { PodSandboxes } from "./pod-sandboxes.ts";
 
@@ -32,6 +32,16 @@ export interface Interface {
 		workspace: string;
 		host: string;
 	}) => Effect.Effect<SandboxNetworkSettings, AuthorizationDenied, CurrentActor.Service>;
+	/**
+	 * Adds `host` to the workspace of the turn whose call `sdkToolCallId`
+	 * asked for it, if a person allowed that call. Answers whether they had.
+	 */
+	readonly grantRequest: (input: {
+		turnId: string;
+		sdkToolCallId: string;
+		host: string;
+		reason: string;
+	}) => Effect.Effect<boolean>;
 }
 
 export class Service extends Context.Service<Service, Interface>()(
@@ -103,6 +113,35 @@ export const make = Effect.gen(function* () {
 					);
 					if (removed.length > 0) yield* podSandboxes.applyAllowedHosts(workspaceId);
 					return yield* settingsOf(workspaceId);
+				}),
+			),
+
+		grantRequest: ({ turnId, sdkToolCallId, host, reason }) =>
+			operation(
+				"grantRequest",
+				Effect.gen(function* () {
+					const [call] = yield* query((db) =>
+						db
+							.select({
+								workspaceId: thread.workspaceId,
+								approvalStatus: toolCall.approvalStatus,
+								decidedById: toolCall.decidedById,
+							})
+							.from(toolCall)
+							.innerJoin(thread, eq(thread.id, toolCall.threadId))
+							.where(and(eq(toolCall.turnId, turnId), eq(toolCall.sdkToolCallId, sdkToolCallId)))
+							.limit(1),
+					);
+					if (call?.approvalStatus !== "allowed") return false;
+					if (!TRUSTED_HOSTS.includes(host)) {
+						yield* add({
+							workspaceId: call.workspaceId,
+							host,
+							reason,
+							addedById: call.decidedById,
+						});
+					}
+					return true;
 				}),
 			),
 	});

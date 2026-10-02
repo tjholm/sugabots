@@ -51,6 +51,7 @@ import {
 	personColumns,
 	toParticipant,
 } from "../threads/participants.ts";
+import { decidersOf } from "../tools/approval-deciders.ts";
 
 /**
  * What the chat screens show, of the chats the current actor can see: the
@@ -369,6 +370,7 @@ const chatsAwaitingDecisionBy = Effect.fn("ChatView.chatsAwaitingDecisionBy")(fu
 			chatId: asking.chatId,
 			podId: asking.podId,
 			routineExecutionId: routineExecutionIdOf(asking.id),
+			tool: toolCall.tool,
 		})
 		.from(toolCall)
 		.innerJoin(asking, eq(asking.id, toolCall.threadId))
@@ -381,9 +383,11 @@ const chatsAwaitingDecisionBy = Effect.fn("ChatView.chatsAwaitingDecisionBy")(fu
 		]),
 	);
 	return new Set(
-		pending.flatMap(({ chatId, podId, routineExecutionId }) => {
+		pending.flatMap(({ chatId, podId, routineExecutionId, tool }) => {
 			const standing = standings.get(podId);
-			return chatId && standing && mayDecideApprovals(standing, routineExecutionId !== null)
+			return chatId &&
+				standing &&
+				mayDecideApprovals(standing, routineExecutionId !== null, decidersOf(tool))
 				? [chatId]
 				: [];
 		}),

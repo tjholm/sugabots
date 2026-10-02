@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "@sugabots/contracts";
+import type { ToolApprovalDeciders, WorkspaceRole } from "@sugabots/contracts";
 import { and, asc, eq, type SQL, type SQLWrapper, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 import type { Executor } from "../database/database.ts";
@@ -9,6 +9,7 @@ import { type UserFacing, UserMessage } from "../user-message.ts";
 import {
 	type Actor,
 	mayInPod,
+	mayInWorkspace,
 	type PodFacts,
 	type PodPermission,
 	rolesGrantedInPod,
@@ -272,13 +273,19 @@ export const reachedPodStandingsFor = Effect.fn("Access.reachedPodStandingsFor")
 });
 
 /**
- * Whether `standing` may decide a tool call's approval: `approval.decide`,
- * and `approval.routine.decide` as well for one raised while a routine runs.
+ * Whether `standing` may decide a tool call's approval that `deciders` decide.
+ * For `pod`: `approval.decide`, and `approval.routine.decide` as well for one
+ * raised while a routine runs. For `sandbox-managers`: managing the
+ * workspace's providers, sandboxes among them, wherever it was raised.
  */
 export function mayDecideApprovals(
-	standing: Pick<PodStanding, "may">,
+	standing: Pick<PodStanding, "may" | "actor">,
 	inRoutine: boolean,
+	deciders: ToolApprovalDeciders,
 ): boolean {
+	if (deciders === "sandbox-managers") {
+		return mayInWorkspace(standing.actor, "workspace.providers.manage");
+	}
 	const needed: readonly PodPermission[] = inRoutine
 		? ["approval.decide", "approval.routine.decide"]
 		: ["approval.decide"];
