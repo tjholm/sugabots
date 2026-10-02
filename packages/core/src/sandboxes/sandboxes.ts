@@ -1,7 +1,7 @@
 export * as Sandboxes from "./sandboxes.ts";
 
 import { type Brand, Context, Data, type Duration, Effect, Layer, type Redacted } from "effect";
-import type { UserMessage } from "../user-message.ts";
+import { type UserFacing, UserMessage } from "../user-message.ts";
 import { fromE2b } from "./implementations/e2b.ts";
 import { fromOpenSandbox } from "./implementations/opensandbox.ts";
 
@@ -43,10 +43,18 @@ export interface Provider {
 	 * whether it was, so the agent can be told what a pause may have stopped.
 	 */
 	readonly open: (id: SandboxId) => Effect.Effect<Opened, Missing | Unavailable>;
+	/** How the sandbox stands at the provider, without resuming it. */
+	readonly info: (id: SandboxId) => Effect.Effect<Info, Missing | Unavailable>;
 	/** Stops the sandbox costing compute until it is opened again. */
 	readonly pause: (id: SandboxId) => Effect.Effect<void, Missing | Unavailable>;
 	/** Throws the sandbox away with everything in it. One that is already gone counts as destroyed. */
 	readonly destroy: (id: SandboxId) => Effect.Effect<void, Unavailable>;
+}
+
+export interface Info {
+	readonly state: "running" | "paused";
+	/** The image or template it was made from, as the provider names it. */
+	readonly image: string;
 }
 
 export interface Capabilities {
@@ -149,10 +157,17 @@ export interface CapturedOutput {
 }
 
 /** The provider could not be reached, refused the request, or failed doing it. */
-export class Unavailable extends Data.TaggedError("SandboxUnavailable")<{
-	provider: Connection["provider"];
-	cause: unknown;
-}> {}
+export class Unavailable
+	extends Data.TaggedError("SandboxUnavailable")<{
+		provider: Connection["provider"];
+		cause: unknown;
+	}>
+	implements UserFacing
+{
+	get userMessage() {
+		return UserMessage.of`The sandbox provider didn't answer. Try again shortly.`;
+	}
+}
 
 /** The provider no longer has the sandbox. */
 export class Missing extends Data.TaggedError("SandboxMissing")<{

@@ -1,9 +1,10 @@
 export * as PodSandboxes from "./pod-sandboxes.ts";
 
-import { and, eq, isNull, lt, sql } from "drizzle-orm";
-import { Context, DateTime, Duration, Effect, Layer, Semaphore } from "effect";
+import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { Context, Data, DateTime, Duration, Effect, Layer, Semaphore } from "effect";
 import { Database, query, serviceOperations } from "../database/database.ts";
 import { sandboxLease, sandbox as sandboxTable } from "../database/schema.ts";
+import { type UserFacing, UserMessage } from "../user-message.ts";
 import { SandboxProviderRepository } from "./sandbox-provider-repository.ts";
 import { Sandboxes } from "./sandboxes.ts";
 
@@ -60,6 +61,26 @@ export interface Interface {
 	) => Effect.Effect<void, Sandboxes.Unavailable>;
 	/** Whether `providerId` has made any sandbox that still exists. */
 	readonly anyMadeBy: (workspaceId: string, providerId: string) => Effect.Effect<boolean>;
+	/**
+	 * How the pod's sandbox stands, asking its provider without resuming it.
+	 * `current` is the workspace's enabled provider, which says whether the
+	 * sandbox's image is out of date.
+	 */
+	readonly status: (
+		pod: Pod,
+		current: SandboxProviderRepository.Configured | undefined,
+	) => Effect.Effect<Status>;
+	/** Destroys the pod's sandbox and forgets it; its next use makes a new one. */
+	readonly reset: (pod: Pod) => Effect.Effect<void, SandboxInUse | Sandboxes.Unavailable>;
+	/**
+	 * Moves the pod's work to a new sandbox made by `provider`, the
+	 * workspace's enabled one, from its image: `/workspace` is copied across,
+	 * less what `.gitignore` files leave out, then the old sandbox is destroyed.
+	 */
+	readonly upgrade: (
+		pod: Pod,
+		provider: SandboxProviderRepository.Configured,
+	) => Effect.Effect<void, SandboxInUse | NoSandbox | UpgradeFailed | Sandboxes.Unavailable>;
 }
 
 export class Service extends Context.Service<Service, Interface>()("@sugabots/core/PodSandboxes") {}
@@ -233,6 +254,28 @@ export const make = Effect.gen(function* () {
 				),
 		);
 
+	/** Who holds a live lease on the sandbox: turns, and people watching a desktop. */
+	const holders = (sandboxId: string) =>
+		Effect.gen(function* () {
+			const now = yield* DateTime.nowAsDate;
+			const leases = yield* query((db) =>
+				db
+					.select({ holder: sandboxLease.holder })
+					.from(sandboxLease)
+					.where(and(eq(sandboxLease.sandboxId, sandboxId), gt(sandboxLease.expiresAt, now))),
+			);
+			const watching = leases.filter(({ holder }) =>
+				holder.startsWith(VIEWER_HOLDER_PREFIX),
+			).length;
+			return { turns: leases.length - watching, watching };
+		});
+
+	/** Fails while a turn is using the sandbox, which a reset or upgrade would pull out from under it. */
+	const requireIdle = (sandboxId: string) =>
+		Effect.flatMap(holders(sandboxId), ({ turns }) =>
+			turns > 0 ? Effect.fail(new SandboxInUse({ turns })) : Effect.void,
+		);
+
 	return Service.of({
 		open: (pod, provider, holder) =>
 			operation(
@@ -337,6 +380,150 @@ export const make = Effect.gen(function* () {
 				"anyMadeBy",
 				Effect.map(madeBy(workspaceId, providerId), (rows) => rows.length > 0),
 			),
+
+		status: (pod, current) =>
+			operation(
+				"status",
+				Effect.gen(function* (): Effect.fn.Return<Status, never, Database> {
+					const row = yield* recorded(pod);
+					if (!row) return { kind: "none" };
+					const using = yield* holders(row.id);
+					const present = {
+						kind: "present" as const,
+						providerId: row.sandboxProviderId,
+						createdAt: row.createdAt,
+						lastUsedAt: row.lastUsedAt,
+						turnsUsing: using.turns,
+						peopleWatching: using.watching,
+					};
+					const configured = yield* providers.connection(row.workspaceId, row.sandboxProviderId);
+					if (!configured) return { ...present, state: "unreachable", upgradeAvailable: false };
+					return yield* sandboxes
+						.forConnection(configured.connection)
+						.info(row.providerSandboxId)
+						.pipe(
+							Effect.map(
+								(info): Status => ({
+									...present,
+									state: info.state,
+									image: info.image,
+									upgradeAvailable:
+										current !== undefined &&
+										(current.id !== row.sandboxProviderId ||
+											imageOf(current.connection) !== info.image),
+								}),
+							),
+							Effect.catchTags({
+								SandboxMissing: () =>
+									Effect.succeed<Status>({ ...present, state: "lost", upgradeAvailable: false }),
+								SandboxUnavailable: () =>
+									Effect.succeed<Status>({
+										...present,
+										state: "unreachable",
+										upgradeAvailable: false,
+									}),
+							}),
+						);
+				}),
+			),
+
+		reset: (pod) =>
+			operation(
+				"reset",
+				oneAtATime(pod.podId)(
+					Effect.gen(function* () {
+						const row = yield* recorded(pod);
+						if (!row) return;
+						yield* requireIdle(row.id);
+						const configured = yield* providers.connection(row.workspaceId, row.sandboxProviderId);
+						if (configured) {
+							yield* sandboxes.forConnection(configured.connection).destroy(row.providerSandboxId);
+						}
+						yield* forget(pod.podId);
+					}),
+				),
+			),
+
+		upgrade: (pod, provider) =>
+			operation(
+				"upgrade",
+				oneAtATime(pod.podId)(
+					Effect.gen(function* () {
+						const row = yield* recorded(pod);
+						if (!row) return yield* new NoSandbox();
+						yield* requireIdle(row.id);
+						const configured = yield* providers.connection(row.workspaceId, row.sandboxProviderId);
+						if (!configured) {
+							return yield* new UpgradeFailed({
+								reason: UserMessage.of`The sandbox's provider has lost its settings, so its work can't be copied. Reset it instead.`,
+							});
+						}
+						const from = sandboxes.forConnection(configured.connection);
+						const old = yield* from.open(row.providerSandboxId).pipe(
+							Effect.map(({ sandbox }) => sandbox),
+							Effect.catchTag("SandboxMissing", () => Effect.fail(new NoSandbox())),
+						);
+						const packed = yield* old.exec(
+							`cd ${Sandboxes.WORKSPACE_DIRECTORY} && tar --exclude-vcs-ignores -czf ${ARCHIVE} .`,
+							COPY_STEP,
+						);
+						if (packed.exitCode !== 0) {
+							return yield* new UpgradeFailed({
+								reason: UserMessage.of`The sandbox's work couldn't be packed up to copy.`,
+							});
+						}
+						const archive = yield* old.readFile(ARCHIVE).pipe(
+							Effect.catchTag("SandboxFileFailed", () =>
+								Effect.fail(
+									new UpgradeFailed({
+										reason: UserMessage.of`The sandbox's work couldn't be read to copy.`,
+									}),
+								),
+							),
+						);
+						const to = sandboxes.forConnection(provider.connection);
+						const fresh = yield* to.create({
+							labels: { "sugabots.workspace": pod.workspaceId, "sugabots.pod": pod.podId },
+						});
+						const unpacked = yield* fresh.writeFile(ARCHIVE, archive).pipe(
+							Effect.andThen(
+								fresh.exec(
+									`tar -xzf ${ARCHIVE} -C ${Sandboxes.WORKSPACE_DIRECTORY} && rm ${ARCHIVE}`,
+									COPY_STEP,
+								),
+							),
+							Effect.map((execution) => execution.exitCode === 0),
+							Effect.catchTag("SandboxFileFailed", () => Effect.succeed(false)),
+							Effect.onError(() => to.destroy(fresh.id).pipe(Effect.ignore)),
+						);
+						if (!unpacked) {
+							yield* to.destroy(fresh.id).pipe(Effect.ignore);
+							return yield* new UpgradeFailed({
+								reason: UserMessage.of`The work couldn't be unpacked in the new sandbox. The old one is untouched.`,
+							});
+						}
+						const now = yield* DateTime.nowAsDate;
+						yield* query((db) =>
+							db
+								.update(sandboxTable)
+								.set({
+									sandboxProviderId: provider.id,
+									providerSandboxId: fresh.id,
+									pausedAt: null,
+									lastUsedAt: now,
+								})
+								.where(eq(sandboxTable.id, row.id)),
+						);
+						yield* from
+							.destroy(row.providerSandboxId)
+							.pipe(
+								Effect.catchTag("SandboxUnavailable", (failure) =>
+									Effect.logWarning("Could not destroy a sandbox after upgrading its pod", failure),
+								),
+							);
+					}),
+				),
+			),
 	});
 });
 
@@ -387,4 +574,63 @@ export interface Opened {
 	 *   lost it, or the workspace changed provider.
 	 */
 	readonly arrival: "made" | "running" | "resumed" | "rebooted" | "replaced";
+}
+
+export type Status =
+	| { readonly kind: "none" }
+	| {
+			readonly kind: "present";
+			/**
+			 * `lost`: the provider no longer has it. `unreachable`: its provider
+			 * didn't answer, or has lost its settings.
+			 */
+			readonly state: "running" | "paused" | "lost" | "unreachable";
+			/** As its provider names it, when the provider answered. */
+			readonly image?: string;
+			readonly providerId: string;
+			readonly createdAt: Date;
+			readonly lastUsedAt: Date;
+			readonly turnsUsing: number;
+			readonly peopleWatching: number;
+			/** Whether the enabled provider would make it from another image, or is another provider. */
+			readonly upgradeAvailable: boolean;
+	  };
+
+/** The holder a person watching a desktop takes a lease as: `viewer:` and an id. */
+export const VIEWER_HOLDER_PREFIX = "viewer:";
+
+/** Where an upgrade packs the workspace in the old sandbox, and unpacks it in the new. */
+const ARCHIVE = "/tmp/sugabots-workspace.tgz";
+const COPY_STEP = { timeout: "5 minutes", maxOutputCharacters: 4_000 } as const;
+
+/** The image or template a connection makes sandboxes from. */
+function imageOf(connection: Sandboxes.Connection): string {
+	return connection.provider === "e2b" ? connection.template : connection.image;
+}
+
+/** A turn is using the sandbox, and resetting or upgrading it would pull it out from under the agent. */
+export class SandboxInUse
+	extends Data.TaggedError("SandboxInUse")<{ turns: number }>
+	implements UserFacing
+{
+	get userMessage() {
+		return UserMessage.of`An agent is using the sandbox right now. Try again when it has finished.`;
+	}
+}
+
+/** The pod has no sandbox to upgrade, or its provider lost it. */
+export class NoSandbox extends Data.TaggedError("NoSandbox") implements UserFacing {
+	get userMessage() {
+		return UserMessage.of`This pod has no sandbox to upgrade. Its next one is made from the current image.`;
+	}
+}
+
+/** An upgrade stopped before the pod moved; its old sandbox is untouched. */
+export class UpgradeFailed
+	extends Data.TaggedError("UpgradeFailed")<{ reason: UserMessage }>
+	implements UserFacing
+{
+	get userMessage() {
+		return this.reason;
+	}
 }

@@ -10,6 +10,7 @@ import type { Turns } from "@sugabots/core/conversations/turns/turns";
 import type { ConnectionSetup } from "@sugabots/core/providers/connections/connection-setup";
 import type { ModelProviderSetup } from "@sugabots/core/providers/model-providers/model-provider-setup";
 import type { SearchProviderSetup } from "@sugabots/core/providers/search-providers/search-provider-setup";
+import type { PodSandboxSetup } from "@sugabots/core/sandboxes/pod-sandbox-setup";
 import type { SandboxProviderSetup } from "@sugabots/core/sandboxes/sandbox-provider-setup";
 import type { AgentAdministration } from "@sugabots/core/workspaces/agents/agent-administration";
 import type { Membership } from "@sugabots/core/workspaces/membership/membership";
@@ -39,6 +40,7 @@ export type HttpServices =
 	| SearchProviderSetup.Service
 	| SandboxProviderSetup.Service
 	| DesktopViewer.Service
+	| PodSandboxSetup.Service
 	| ConnectionSetup.Service
 	| ModelTrials.Service
 	| Usage.Service

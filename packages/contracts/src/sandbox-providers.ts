@@ -123,3 +123,34 @@ export const sandboxProviderTestResultSchema = Schema.Struct({
 });
 
 export type SandboxProviderTestResult = typeof sandboxProviderTestResultSchema.Type;
+
+/** A pod's sandbox as the pod's settings show it. */
+export const podSandboxStateSchema = Schema.Union([
+	Schema.Struct({ kind: Schema.Literal("none") }),
+	Schema.Struct({
+		kind: Schema.Literal("present"),
+		/** `lost`: the provider no longer has it. `unreachable`: its provider didn't answer. */
+		state: Schema.Literals(["running", "paused", "lost", "unreachable"]),
+		/** What it was made from, as its provider names it; null when the provider didn't answer. */
+		image: Schema.NullOr(Schema.String),
+		providerName: Schema.String,
+		createdAt: isoTimestampSchema,
+		lastUsedAt: isoTimestampSchema,
+		turnsUsing: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+		peopleWatching: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+		/** Whether the workspace's enabled provider would make it from another image, or is another provider. */
+		upgradeAvailable: Schema.Boolean,
+	}),
+]);
+
+export type PodSandboxState = typeof podSandboxStateSchema.Type;
+
+export const podSandboxSchema = Schema.Struct({
+	sandbox: podSandboxStateSchema,
+	/** Whether the workspace has a sandbox provider enabled, without which nothing new is made. */
+	providerEnabled: Schema.Boolean,
+	/** Whether the person asking may reset or upgrade it. */
+	canManage: Schema.Boolean,
+});
+
+export type PodSandbox = typeof podSandboxSchema.Type;

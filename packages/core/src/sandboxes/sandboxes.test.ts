@@ -152,6 +152,28 @@ describe.each(connections)("%s sandboxes", (_, connection) => {
 		);
 
 		it(
+			"reports whether it runs, and the image it was made from",
+			async () => {
+				const made = await run(Effect.flatMap(provider, (p) => p.create({ labels: LABELS })));
+				const info = (id: Sandboxes.SandboxId) => run(Effect.flatMap(provider, (p) => p.info(id)));
+
+				const running = await info(made.id);
+				await run(Effect.flatMap(provider, (p) => p.pause(made.id)));
+				const paused = await info(made.id);
+				await run(Effect.flatMap(provider, (p) => p.destroy(made.id)));
+
+				expect(running.state).toBe("running");
+				expect(running.image).toContain(
+					connection?.provider === "e2b"
+						? connection.template
+						: (connection as Sandboxes.OpenSandboxConnection).image,
+				);
+				expect(paused.state).toBe("paused");
+			},
+			SLOW,
+		);
+
+		it(
 			"keeps files across a pause, and says when opening resumed it",
 			async () => {
 				await run(sandbox.exec("echo kept > kept.txt", EXEC));

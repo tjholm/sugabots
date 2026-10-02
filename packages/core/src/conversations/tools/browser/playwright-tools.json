@@ -19,12 +19,7 @@
 					"default": "info",
 					"description": "Level of the console messages to return. Each level includes the messages of more severe levels. Defaults to \"info\".",
 					"type": "string",
-					"enum": [
-						"error",
-						"warning",
-						"info",
-						"debug"
-					]
+					"enum": ["error", "warning", "info", "debug"]
 				},
 				"all": {
 					"description": "Return all console messages since the beginning of the session, not just since the last navigation. Defaults to false.",
@@ -35,9 +30,7 @@
 					"type": "string"
 				}
 			},
-			"required": [
-				"level"
-			],
+			"required": ["level"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -57,9 +50,7 @@
 					"type": "string"
 				}
 			},
-			"required": [
-				"accept"
-			],
+			"required": ["accept"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -75,10 +66,7 @@
 					"anyOf": [
 						{
 							"type": "string",
-							"enum": [
-								"light",
-								"dark"
-							]
+							"enum": ["light", "dark"]
 						},
 						{
 							"type": "null"
@@ -90,10 +78,7 @@
 					"anyOf": [
 						{
 							"type": "string",
-							"enum": [
-								"reduce",
-								"no-preference"
-							]
+							"enum": ["reduce", "no-preference"]
 						},
 						{
 							"type": "null"
@@ -105,10 +90,7 @@
 					"anyOf": [
 						{
 							"type": "string",
-							"enum": [
-								"active",
-								"none"
-							]
+							"enum": ["active", "none"]
 						},
 						{
 							"type": "null"
@@ -120,10 +102,7 @@
 					"anyOf": [
 						{
 							"type": "string",
-							"enum": [
-								"more",
-								"no-preference"
-							]
+							"enum": ["more", "no-preference"]
 						},
 						{
 							"type": "null"
@@ -135,10 +114,7 @@
 					"anyOf": [
 						{
 							"type": "string",
-							"enum": [
-								"screen",
-								"print"
-							]
+							"enum": ["screen", "print"]
 						},
 						{
 							"type": "null"
@@ -173,9 +149,7 @@
 					"type": "string"
 				}
 			},
-			"required": [
-				"function"
-			],
+			"required": ["function"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -230,9 +204,7 @@
 					}
 				}
 			},
-			"required": [
-				"target"
-			],
+			"required": ["target"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -285,13 +257,7 @@
 							},
 							"type": {
 								"type": "string",
-								"enum": [
-									"textbox",
-									"checkbox",
-									"radio",
-									"combobox",
-									"slider"
-								],
+								"enum": ["textbox", "checkbox", "radio", "combobox", "slider"],
 								"description": "Type of the field"
 							},
 							"value": {
@@ -299,20 +265,13 @@
 								"description": "Value to fill in the field. If the field is a checkbox, the value should be `true` or `false`. If the field is a combobox, the value should be the text of the option."
 							}
 						},
-						"required": [
-							"target",
-							"name",
-							"type",
-							"value"
-						],
+						"required": ["target", "name", "type", "value"],
 						"additionalProperties": false
 					},
 					"description": "Fields to fill in"
 				}
 			},
-			"required": [
-				"fields"
-			],
+			"required": ["fields"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -328,9 +287,7 @@
 					"description": "Name of the key to press or a character to generate, such as `ArrowLeft` or `a`"
 				}
 			},
-			"required": [
-				"key"
-			],
+			"required": ["key"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -362,10 +319,7 @@
 					"type": "boolean"
 				}
 			},
-			"required": [
-				"target",
-				"text"
-			],
+			"required": ["target", "text"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -381,9 +335,7 @@
 					"description": "The URL to navigate to"
 				}
 			},
-			"required": [
-				"url"
-			],
+			"required": ["url"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -418,9 +370,7 @@
 					"type": "string"
 				}
 			},
-			"required": [
-				"static"
-			],
+			"required": ["static"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -440,21 +390,14 @@
 				"part": {
 					"description": "Return only this part of the request. Omit to return full details.",
 					"type": "string",
-					"enum": [
-						"request-headers",
-						"request-body",
-						"response-headers",
-						"response-body"
-					]
+					"enum": ["request-headers", "request-body", "response-headers", "response-body"]
 				},
 				"filename": {
 					"description": "File name to save the result to. Relative file names are resolved against the workspace root. If not provided, output is returned as text.",
 					"type": "string"
 				}
 			},
-			"required": [
-				"index"
-			],
+			"required": ["index"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -476,11 +419,7 @@
 				"type": {
 					"description": "Image format for the screenshot. If unset, inferred from the filename extension, otherwise png.",
 					"type": "string",
-					"enum": [
-						"png",
-						"jpeg",
-						"webp"
-					]
+					"enum": ["png", "jpeg", "webp"]
 				},
 				"filename": {
 					"description": "File name to save the screenshot to. Relative file names are resolved against the workspace root. If not specified, the screenshot is saved into the output directory as `page-{timestamp}.{png|jpeg|webp}`.",
@@ -494,15 +433,10 @@
 					"default": "css",
 					"description": "Image resolution scale. \"css\" produces a screenshot sized in CSS pixels (smaller, consistent across devices). \"device\" produces a high-resolution screenshot using device pixels (larger, accounts for the device pixel ratio). Default is css.",
 					"type": "string",
-					"enum": [
-						"css",
-						"device"
-					]
+					"enum": ["css", "device"]
 				}
 			},
-			"required": [
-				"scale"
-			],
+			"required": ["scale"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -555,30 +489,18 @@
 				"button": {
 					"description": "Button to click, defaults to left",
 					"type": "string",
-					"enum": [
-						"left",
-						"right",
-						"middle"
-					]
+					"enum": ["left", "right", "middle"]
 				},
 				"modifiers": {
 					"description": "Modifier keys to press",
 					"type": "array",
 					"items": {
 						"type": "string",
-						"enum": [
-							"Alt",
-							"Control",
-							"ControlOrMeta",
-							"Meta",
-							"Shift"
-						]
+						"enum": ["Alt", "Control", "ControlOrMeta", "Meta", "Shift"]
 					}
 				}
 			},
-			"required": [
-				"target"
-			],
+			"required": ["target"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -606,10 +528,7 @@
 					"description": "Exact target element reference from the page snapshot, or a unique element selector"
 				}
 			},
-			"required": [
-				"startTarget",
-				"endTarget"
-			],
+			"required": ["startTarget", "endTarget"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -629,9 +548,7 @@
 					"description": "Exact target element reference from the page snapshot, or a unique element selector"
 				}
 			},
-			"required": [
-				"target"
-			],
+			"required": ["target"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -658,10 +575,7 @@
 					"description": "Array of values to select in the dropdown. This can be a single value or multiple values."
 				}
 			},
-			"required": [
-				"target",
-				"values"
-			],
+			"required": ["target", "values"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}
@@ -674,12 +588,7 @@
 			"properties": {
 				"action": {
 					"type": "string",
-					"enum": [
-						"list",
-						"new",
-						"close",
-						"select"
-					],
+					"enum": ["list", "new", "close", "select"],
 					"description": "Operation to perform"
 				},
 				"index": {
@@ -691,9 +600,7 @@
 					"type": "string"
 				}
 			},
-			"required": [
-				"action"
-			],
+			"required": ["action"],
 			"$schema": "https://json-schema.org/draft/2020-12/schema",
 			"additionalProperties": false
 		}

@@ -22,6 +22,7 @@ import { eventRoutes } from "../routes/events/routes.ts";
 import { modelProviderRoutes } from "../routes/model-providers/routes.ts";
 import { modelTrialRoutes } from "../routes/model-trials/routes.ts";
 import { onboardingRoutes } from "../routes/onboarding/routes.ts";
+import { podSandboxRoutes } from "../routes/pod-sandbox/routes.ts";
 import { podRoutes } from "../routes/pods/routes.ts";
 import { referralRoutes } from "../routes/referrals/routes.ts";
 import { routineRoutes } from "../routes/routines/routes.ts";
@@ -83,6 +84,7 @@ export const apiLayer: Layer.Layer<never, never, HttpServices | ApiInfrastructur
 				modelProviderRoutes,
 				searchProviderRoutes,
 				sandboxProviderRoutes,
+				podSandboxRoutes,
 				connectionRoutes,
 				agentRoutes,
 				chatRoutes,

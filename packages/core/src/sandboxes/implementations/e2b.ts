@@ -80,6 +80,14 @@ export const fromE2b = (connection: Sandboxes.E2bConnection): Sandboxes.Provider
 				},
 				catch: missingOr(id),
 			}),
+		info: (id) =>
+			Effect.tryPromise({
+				try: async (): Promise<Sandboxes.Info> => {
+					const info = await E2bSandbox.getInfo(id, options());
+					return { state: info.state, image: info.name ?? info.templateId };
+				},
+				catch: missingOr(id),
+			}),
 		pause: (id) =>
 			Effect.tryPromise({
 				try: () => E2bSandbox.pause(id, options()),

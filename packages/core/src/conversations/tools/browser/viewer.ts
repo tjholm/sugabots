@@ -50,7 +50,7 @@ export const make = Effect.gen(function* () {
 				if (!agent.podId || agent.workspaceId !== thread.workspaceId) {
 					return yield* new DesktopNotRunning();
 				}
-				const holder = `viewer:${yield* ids.random}`;
+				const holder = `${PodSandboxes.VIEWER_HOLDER_PREFIX}${yield* ids.random}`;
 				yield* Effect.addFinalizer(() => podSandboxes.release(holder));
 				const sandbox = yield* podSandboxes.watch(
 					{ workspaceId: agent.workspaceId, podId: agent.podId },

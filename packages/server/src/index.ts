@@ -26,6 +26,7 @@ import { PresetSeeding } from "@sugabots/core/providers/model-providers/preset-s
 import { Models } from "@sugabots/core/providers/models/models";
 import { Egress } from "@sugabots/core/providers/network/egress";
 import { SearchProviderSetup } from "@sugabots/core/providers/search-providers/search-provider-setup";
+import { PodSandboxSetup } from "@sugabots/core/sandboxes/pod-sandbox-setup";
 import { PodSandboxes } from "@sugabots/core/sandboxes/pod-sandboxes";
 import { SandboxProviderSetup } from "@sugabots/core/sandboxes/sandbox-provider-setup";
 import { AgentAdministration } from "@sugabots/core/workspaces/agents/agent-administration";
@@ -86,6 +87,7 @@ const WorkspacesAndProviders = Layer.mergeAll(
 	ModelProviderSetup.layer,
 	SearchProviderSetup.layer,
 	SandboxProviderSetup.layer,
+	PodSandboxSetup.layer,
 	ConnectionSetup.layer,
 	ModelTrials.layer,
 	Usage.layer,

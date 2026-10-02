@@ -6,6 +6,7 @@ import { EventsApi } from "./groups/events.ts";
 import { ModelProvidersApi } from "./groups/model-providers.ts";
 import { ModelTrialsApi } from "./groups/model-trials.ts";
 import { OnboardingApi } from "./groups/onboarding.ts";
+import { PodSandboxApi } from "./groups/pod-sandbox.ts";
 import { PodsApi } from "./groups/pods.ts";
 import { ReferralsApi } from "./groups/referrals.ts";
 import { RoutinesApi } from "./groups/routines.ts";
@@ -40,6 +41,7 @@ export class Api extends HttpApi.make("sugabots")
 	.add(ModelProvidersApi)
 	.add(SearchProvidersApi)
 	.add(SandboxProvidersApi)
+	.add(PodSandboxApi)
 	.add(ConnectionsApi)
 	.add(EventsApi)
 	.add(ChatsApi)

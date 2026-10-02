@@ -280,4 +280,71 @@ describe.skipIf(!configured)("pod sandboxes, against Postgres and OpenSandbox", 
 		},
 		SLOW,
 	);
+
+	it(
+		"reports the pod's sandbox, and when the provider would make it from another image",
+		async () => {
+			expect((await runOnPostgres(podSandboxes.status(thePod, await enabledProvider()))).kind).toBe(
+				"none",
+			);
+			await open();
+			const provider = await enabledProvider();
+			const now = await runOnPostgres(podSandboxes.status(thePod, provider));
+			await runOnPostgres(
+				providers.update(thePod.workspaceId, provider.id, { image: "python:3.13-slim" }),
+			);
+			const later = await runOnPostgres(podSandboxes.status(thePod, await enabledProvider()));
+
+			expect(now).toMatchObject({ kind: "present", state: "running", image: IMAGE, turnsUsing: 1 });
+			expect(now.kind === "present" && now.upgradeAvailable).toBe(false);
+			expect(later.kind === "present" && later.upgradeAvailable).toBe(true);
+		},
+		SLOW,
+	);
+
+	it(
+		"won't reset a sandbox a turn is using, and resets it once the turn lets go",
+		async () => {
+			const first = await open();
+
+			const refused = await runOnPostgres(Effect.exit(podSandboxes.reset(thePod)));
+			await runOnPostgres(podSandboxes.release(HOLDER));
+			await runOnPostgres(podSandboxes.reset(thePod));
+
+			expect(refused.toString()).toContain("SandboxInUse");
+			expect((await runOnPostgres(podSandboxes.status(thePod, undefined))).kind).toBe("none");
+			expect(await missing(first.sandbox.id)).toBe(true);
+		},
+		SLOW,
+	);
+
+	it(
+		"upgrades to a new sandbox with the workspace copied across, less what .gitignore leaves out",
+		async () => {
+			const first = await open();
+			const exec = (sandbox: Sandboxes.Sandbox, command: string) =>
+				Effect.runPromise(
+					sandbox.exec(command, { timeout: "30 seconds", maxOutputCharacters: 2_000 }),
+				);
+			await exec(
+				first.sandbox,
+				"mkdir -p threads/t1/app/node_modules && echo kept > threads/t1/app/notes.md && echo dropped > threads/t1/app/node_modules/big.js && echo node_modules > threads/t1/app/.gitignore",
+			);
+			await runOnPostgres(podSandboxes.release(HOLDER));
+
+			await runOnPostgres(podSandboxes.upgrade(thePod, await enabledProvider()));
+			const upgraded = await open();
+			const listed = await exec(
+				upgraded.sandbox,
+				"cat threads/t1/app/notes.md; ls threads/t1/app/node_modules 2>&1",
+			);
+
+			expect(upgraded.sandbox.id).not.toBe(first.sandbox.id);
+			expect(upgraded.arrival).toBe("running");
+			expect(listed.stdout.text).toContain("kept");
+			expect(listed.stdout.text + listed.stderr.text).toContain("No such file");
+			expect(await missing(first.sandbox.id)).toBe(true);
+		},
+		SLOW,
+	);
 });

@@ -81,6 +81,18 @@ export const fromOpenSandbox = (
 				},
 				catch: missingOr(id),
 			}),
+		info: (id) =>
+			Effect.tryPromise({
+				try: async (): Promise<Sandboxes.Info> => {
+					const info = await manager().getSandboxInfo(id);
+					const state = info.status.state;
+					return {
+						state: state === "Paused" || state === "Pausing" ? "paused" : "running",
+						image: String((info.image as { uri?: string } | undefined)?.uri ?? ""),
+					};
+				},
+				catch: missingOr(id),
+			}),
 		pause: (id) =>
 			Effect.tryPromise({
 				try: () => manager().pauseSandbox(id),
