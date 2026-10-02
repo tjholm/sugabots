@@ -72,6 +72,7 @@ const meta = preview.meta({
 		msw.use(
 			http.get(`${import.meta.env.VITE_API_URL}/workspaces`, () => HttpResponse.json([workspace])),
 			answers([]),
+			http.get(`${providersUrl}/:providerId/template`, () => HttpResponse.json({ state: "ready" })),
 			http.all(`${providersUrl}*`, () =>
 				HttpResponse.json(
 					{ _tag: "InternalServerError", message: "This preview does not save sandbox settings." },
@@ -140,8 +141,38 @@ export const SwitchingProvider = meta.story({
 	},
 	play: async ({ canvas, userEvent }) => {
 		await userEvent.click(await canvas.findByRole("radio", { name: /E2B/ }));
-		await expect(canvas.getByLabelText("Template")).toHaveAttribute("placeholder", "base");
+		await expect(canvas.getByLabelText("Template")).toHaveAttribute(
+			"placeholder",
+			"sugabots-sandbox",
+		);
 		await expect(canvas.getByLabelText("Sandbox URL")).toBeInTheDocument();
 		await expect(canvas.getByText(/moves sandboxes from OpenSandbox to E2B/)).toBeInTheDocument();
+	},
+});
+
+/** E2B with a key but no Sugabots template yet: preparing it builds the image into the workspace's E2B account. */
+export const E2bTemplateMissing = meta.story({
+	beforeEach({ msw }) {
+		msw.use(
+			answers([
+				{
+					...openSandbox,
+					id: "0199a3a0-0000-7000-8000-0000000000f2",
+					preset: "e2b",
+					name: "E2B",
+					baseUrl: null,
+					image: null,
+					hasApiKey: true,
+					status: "untested",
+				},
+			]),
+			http.get(`${providersUrl}/:providerId/template`, () =>
+				HttpResponse.json({ state: "missing" }),
+			),
+		);
+	},
+	play: async ({ canvas }) => {
+		await expect(await canvas.findByText("Prepare template")).toBeVisible();
+		await expect(canvas.getByText(/into a template in your E2B account/)).toBeVisible();
 	},
 });

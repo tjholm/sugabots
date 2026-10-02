@@ -6,6 +6,7 @@ import type {
 	SandboxProviderTestResult,
 	SandboxProviderUpdate,
 } from "@sugabots/contracts";
+import { SANDBOX_IMAGE } from "@sugabots/contracts";
 import { Clock, Context, Data, Effect, Layer } from "effect";
 import type { AuthorizationDenied } from "../authorization/access.ts";
 import { Authorization } from "../authorization/authorization.ts";
@@ -14,6 +15,7 @@ import { serviceOperations } from "../database/database.ts";
 import { Egress } from "../providers/network/egress.ts";
 import { requireAllowedUrl, type UrlNotAllowed } from "../providers/tested-configuration.ts";
 import { type UserFacing, UserMessage } from "../user-message.ts";
+import { pinnedToDigest } from "./image-digest.ts";
 import { PodSandboxes } from "./pod-sandboxes.ts";
 import { toSandboxProvider } from "./sandbox-provider-reads.ts";
 import { SandboxProviderRepository } from "./sandbox-provider-repository.ts";
@@ -64,6 +66,27 @@ export interface Interface {
 	}) => Effect.Effect<
 		void,
 		AuthorizationDenied | SandboxProviderNotFound | SandboxesNotDestroyed,
+		CurrentActor.Service
+	>;
+	/**
+	 * How the provider's template stands, for a provider that builds its
+	 * sandboxes' template (E2B); `undefined` for one that takes images as they are.
+	 */
+	readonly templateStatus: (input: {
+		workspace: string;
+		providerId: string;
+	}) => Effect.Effect<
+		Sandboxes.TemplateStatus | undefined,
+		AuthorizationDenied | SandboxProviderNotFound | Sandboxes.Unavailable,
+		CurrentActor.Service
+	>;
+	/** Starts building the provider's template from Sugabots' sandbox image, in the workspace's own account. */
+	readonly prepareTemplate: (input: {
+		workspace: string;
+		providerId: string;
+	}) => Effect.Effect<
+		Sandboxes.TemplateStatus,
+		AuthorizationDenied | SandboxProviderNotFound | NoTemplates | Sandboxes.Unavailable,
 		CurrentActor.Service
 	>;
 	/** Asks the provider whether it answers and accepts the key, and records how that went. */
@@ -165,6 +188,37 @@ export const make = Effect.gen(function* () {
 				}),
 			),
 
+		templateStatus: ({ workspace, providerId }) =>
+			operation(
+				"templateStatus",
+				Effect.gen(function* () {
+					const { workspaceId } = yield* managed(workspace);
+					const row = yield* requireProvider(workspaceId, providerId);
+					const configured = yield* providers.connection(workspaceId, providerId);
+					const templates = configured && sandboxes.forConnection(configured.connection).templates;
+					if (!templates) return undefined;
+					return yield* templates.status(row.templateBuild ?? undefined);
+				}),
+			),
+
+		prepareTemplate: ({ workspace, providerId }) =>
+			operation(
+				"prepareTemplate",
+				Effect.gen(function* () {
+					const { workspaceId } = yield* managed(workspace);
+					yield* requireProvider(workspaceId, providerId);
+					const configured = yield* providers.connection(workspaceId, providerId);
+					const templates = configured && sandboxes.forConnection(configured.connection).templates;
+					if (!templates) return yield* new NoTemplates();
+					const image = yield* Effect.promise(() =>
+						pinnedToDigest(SANDBOX_IMAGE, egress.providers).catch(() => SANDBOX_IMAGE),
+					);
+					const build = yield* templates.build(image);
+					yield* providers.recordTemplateBuild(workspaceId, providerId, build);
+					return yield* templates.status(build);
+				}),
+			),
+
 		test: ({ workspace, providerId }) =>
 			operation(
 				"test",
@@ -215,6 +269,13 @@ export const layer = layerNoDeps.pipe(
 		Sandboxes.layer,
 	]),
 );
+
+/** The provider takes images as they are, or lacks the settings to build a template with. */
+export class NoTemplates extends Data.TaggedError("NoTemplates") implements UserFacing {
+	get userMessage() {
+		return UserMessage.of`This provider has no template to prepare. Add its key first, if it needs one.`;
+	}
+}
 
 export class SandboxProviderNotFound
 	extends Data.TaggedError("SandboxProviderNotFound")

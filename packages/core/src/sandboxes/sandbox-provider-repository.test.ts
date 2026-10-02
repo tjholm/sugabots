@@ -102,12 +102,12 @@ describe.skipIf(!process.env.DATABASE_URL)("sandbox providers, against Postgres"
 		};
 
 		expect(provider.baseUrl).toBe("http://localhost:8090");
-		expect(await imageOf()).toBe("sugabots-sandbox:latest");
+		expect(await imageOf()).toBe("ghcr.io/nitrictech/sugabots-sandbox:latest");
 
 		await runOnPostgres(providers.update(workspaceId, provider.id, { image: "debian:trixie" }));
 		expect(await imageOf()).toBe("debian:trixie");
 
 		await runOnPostgres(providers.update(workspaceId, provider.id, { image: null }));
-		expect(await imageOf()).toBe("sugabots-sandbox:latest");
+		expect(await imageOf()).toBe("ghcr.io/nitrictech/sugabots-sandbox:latest");
 	});
 });

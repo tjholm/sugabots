@@ -36,7 +36,6 @@ export interface BrowserSession {
 
 const SCREENSHOT_TOOL = "browser_take_screenshot";
 const NO_BROWSER = UserMessage.of`This sandbox's image has no browser. Its image needs sugabots-desktop, as Sugabots' default image has.`;
-const UNREACHABLE = UserMessage.of`The browser could not be reached. Try again shortly.`;
 
 /** The session's name for an agent in a thread: one desktop and browser each. */
 export function sessionName(turn: { threadId: string; agentId: string }) {
@@ -89,7 +88,8 @@ export function browserSession(
 		call: async (toolName, input) => {
 			connecting ??= connect().catch((cause: unknown) => {
 				connecting = undefined;
-				if (cause instanceof Sandboxes.Unavailable) return { status: "failed", error: UNREACHABLE };
+				if (cause instanceof Sandboxes.Unavailable)
+					return { status: "failed", error: cause.userMessage };
 				throw cause;
 			});
 			const connected = await connecting;

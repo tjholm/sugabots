@@ -1,0 +1,1 @@
+ALTER TABLE "sandbox_provider" ADD COLUMN "template_build" jsonb;

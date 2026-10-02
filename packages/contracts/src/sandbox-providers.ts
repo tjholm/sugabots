@@ -12,6 +12,18 @@ import { uuidSchema } from "./uuid.ts";
  * pod's sandbox. Agents are offered the sandbox tools only while one is.
  */
 
+/**
+ * Sugabots' sandbox image, from `docker/sandbox`: published to GHCR, or built
+ * locally under the same name with `bun run build:sandbox`.
+ */
+export const SANDBOX_IMAGE = "ghcr.io/nitrictech/sugabots-sandbox:latest";
+
+/**
+ * The E2B template Sugabots builds from {@link SANDBOX_IMAGE} in a
+ * workspace's E2B account. E2B makes sandboxes from templates, not images.
+ */
+export const SANDBOX_E2B_TEMPLATE = "sugabots-sandbox";
+
 export const sandboxProviderPresetIdSchema = Schema.Literals(["opensandbox", "e2b"]);
 export type SandboxProviderPresetId = typeof sandboxProviderPresetIdSchema.Type;
 
@@ -34,15 +46,14 @@ export const sandboxProviderCatalog: readonly SandboxProviderPreset[] = [
 		hosting: "local",
 		baseUrl: "http://localhost:8090",
 		imageLabel: "Image",
-		// Built locally with `bun run build:sandbox` until it is published.
-		defaultImage: "sugabots-sandbox:latest",
+		defaultImage: SANDBOX_IMAGE,
 	},
 	{
 		id: "e2b",
 		name: "E2B",
 		hosting: "remote",
 		imageLabel: "Template",
-		defaultImage: "base",
+		defaultImage: SANDBOX_E2B_TEMPLATE,
 	},
 ];
 
@@ -154,3 +165,14 @@ export const podSandboxSchema = Schema.Struct({
 });
 
 export type PodSandbox = typeof podSandboxSchema.Type;
+
+/**
+ * How a provider's template stands, for a provider that builds its sandboxes
+ * from one (E2B): `missing` until Sugabots' is prepared in the workspace's
+ * account. Null for a provider that takes images as they are.
+ */
+export const sandboxTemplateSchema = Schema.Struct({
+	state: Schema.NullOr(Schema.Literals(["missing", "building", "ready", "failed"])),
+});
+
+export type SandboxTemplate = typeof sandboxTemplateSchema.Type;

@@ -14,7 +14,7 @@ const running: PodSandbox = {
 	sandbox: {
 		kind: "present",
 		state: "running",
-		image: "sugabots-sandbox:latest",
+		image: "ghcr.io/nitrictech/sugabots-sandbox:latest",
 		providerName: "OpenSandbox",
 		createdAt: "2026-09-29T09:00:00.000Z",
 		lastUsedAt: "2026-10-02T05:40:00.000Z",
@@ -77,7 +77,7 @@ const meta = preview.meta({
 export const Running = meta.story({
 	play: async ({ canvas }) => {
 		await expect(await canvas.findByText("OpenSandbox")).toBeVisible();
-		await expect(canvas.getByText("sugabots-sandbox:latest")).toBeVisible();
+		await expect(canvas.getByText("ghcr.io/nitrictech/sugabots-sandbox:latest")).toBeVisible();
 		await expect(canvas.getByText("Running")).toBeVisible();
 		await expect(canvas.getByText("Reset")).toBeVisible();
 	},

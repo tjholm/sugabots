@@ -213,3 +213,57 @@ describe.each(connections)("%s sandboxes", (_, connection) => {
 		);
 	});
 });
+
+describe.skipIf(!env.E2B_API_KEY)("E2B templates, against the service", () => {
+	it("builds a template from an image, then makes sandboxes from it", async () => {
+		const connection: Sandboxes.E2bConnection = {
+			provider: "e2b",
+			apiKey: Redacted.make(env.E2B_API_KEY ?? ""),
+			template: `sugabots-test-${Date.now()}`,
+			...(env.E2B_API_URL && env.E2B_SANDBOX_URL
+				? { endpoints: { apiUrl: env.E2B_API_URL, sandboxUrl: env.E2B_SANDBOX_URL } }
+				: {}),
+		};
+		const provider = await run(Effect.map(Sandboxes.Service, (s) => s.forConnection(connection)));
+		const templates = provider.templates;
+		if (!templates) throw new Error("E2B builds templates");
+
+		const before = await run(templates.status(undefined));
+		const build = await run(templates.build("python:3.13-slim"));
+		let status = await run(templates.status(build));
+		while (status === "building") {
+			await new Promise((resolve) => setTimeout(resolve, 3_000));
+			status = await run(templates.status(build));
+		}
+		const made = await run(provider.create({ labels: LABELS }));
+		const python = await run(made.exec("python3 --version", EXEC));
+		await run(provider.destroy(made.id));
+
+		expect(before).toBe("missing");
+		expect(status).toBe("ready");
+		expect(await run(templates.status(undefined))).toBe("ready");
+		expect(python.stdout.text).toContain("Python 3.13");
+	}, 600_000);
+
+	it("says so when the workspace's template hasn't been built", async () => {
+		const provider = await run(
+			Effect.map(Sandboxes.Service, (s) =>
+				s.forConnection({
+					provider: "e2b",
+					apiKey: Redacted.make(env.E2B_API_KEY ?? ""),
+					template: "sugabots-never-built",
+					...(env.E2B_API_URL && env.E2B_SANDBOX_URL
+						? { endpoints: { apiUrl: env.E2B_API_URL, sandboxUrl: env.E2B_SANDBOX_URL } }
+						: {}),
+				}),
+			),
+		);
+
+		const exit = await runExit(provider.create({ labels: LABELS }));
+		const failure = Exit.isFailure(exit)
+			? exit.cause.reasons.find(Cause.isFailReason)?.error
+			: undefined;
+
+		expect(failure?.userMessage).toContain("E2B template isn't ready");
+	});
+});

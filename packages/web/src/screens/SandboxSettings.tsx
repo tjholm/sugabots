@@ -9,10 +9,15 @@ import {
 import { Check } from "lucide-react";
 import { useId, useState } from "react";
 import { failureMessage } from "@/lib/failure.ts";
-import { useSandboxProviderActions, useSandboxProviders } from "@/lib/sandbox-providers.ts";
+import {
+	usePrepareSandboxTemplate,
+	useSandboxProviderActions,
+	useSandboxProviders,
+	useSandboxTemplate,
+} from "@/lib/sandbox-providers.ts";
 import { Alert } from "@/ui/alert.tsx";
 import { DeleteDialog } from "@/ui/delete-dialog.tsx";
-import { SettingsGroup, SettingsRow, SettingsRowIcon } from "@/ui/settings-page.tsx";
+import { SettingsGroup, SettingsRow, SettingsRowIcon, SettingsValue } from "@/ui/settings-page.tsx";
 import { Toggle } from "@/ui/toggle.tsx";
 import { TextEntryRow } from "./text-entry-row.tsx";
 
@@ -267,6 +272,7 @@ function ProviderSettings({
 					/>
 				</>
 			)}
+			{chosen === "e2b" && provider && hasKey && <TemplateRow providerId={provider.id} />}
 			{provider && hasKey && (
 				<SettingsRow
 					label="Test connection"
@@ -316,6 +322,41 @@ function ProviderSettings({
 				}}
 			/>
 		</SettingsGroup>
+	);
+}
+
+/**
+ * E2B makes sandboxes from a template, built in the workspace's own E2B
+ * account from Sugabots' sandbox image. Until it is, sandboxes can't be made.
+ */
+function TemplateRow({ providerId }: { providerId: string }) {
+	const template = useSandboxTemplate(providerId);
+	const prepare = usePrepareSandboxTemplate(providerId);
+	const state = template.data?.state;
+	const canPrepare = state === "missing" || state === "failed";
+	return (
+		<SettingsRow
+			label={canPrepare ? "Prepare template" : "Sugabots template"}
+			sub={
+				prepare.error
+					? failureMessage(prepare.error)
+					: template.error
+						? failureMessage(template.error)
+						: state === "ready"
+							? "Ready. Sandboxes are made from Sugabots' image."
+							: state === "building"
+								? "Building in your E2B account. This takes a few minutes."
+								: state === "failed"
+									? "The last build failed. Try again."
+									: "Builds Sugabots' sandbox image into a template in your E2B account."
+			}
+			trailing={
+				state && !canPrepare ? (
+					<SettingsValue>{state === "ready" ? "Ready" : "Building"}</SettingsValue>
+				) : undefined
+			}
+			onClick={canPrepare && !prepare.isPending ? () => prepare.mutate() : undefined}
+		/>
 	);
 }
 

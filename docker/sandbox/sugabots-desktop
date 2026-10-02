@@ -19,6 +19,10 @@
 # noVNC on port 6080+N, and its browser's MCP server is on port 8930+N.
 set -euo pipefail
 
+# Set here rather than relied on from the image: E2B runs commands without
+# the image's ENV.
+export LANG="${LANG:-C.UTF-8}" PYTHONPATH=/opt/websockify
+
 state="${TMPDIR:-/tmp}/sugabots-desktop"
 mkdir -p "$state/sessions"
 

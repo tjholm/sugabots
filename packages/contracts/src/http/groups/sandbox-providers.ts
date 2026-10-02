@@ -6,6 +6,7 @@ import {
 	sandboxProviderSchema,
 	sandboxProviderTestResultSchema,
 	sandboxProviderUpdateSchema,
+	sandboxTemplateSchema,
 } from "../../sandbox-providers.ts";
 import { uuidSchema } from "../../uuid.ts";
 import { workspaceIdOrSlugSchema } from "../../workspaces.ts";
@@ -43,6 +44,16 @@ export class SandboxProvidersApi extends HttpApiGroup.make("sandboxProviders")
 		HttpApiEndpoint.delete("remove", `${root}/:providerId`, {
 			params: provider,
 			error: [Conflict, ...refused],
+		}),
+		HttpApiEndpoint.get("template", `${root}/:providerId/template`, {
+			params: provider,
+			success: sandboxTemplateSchema,
+			error: [Conflict, ...refused],
+		}),
+		HttpApiEndpoint.post("prepareTemplate", `${root}/:providerId/template`, {
+			params: provider,
+			success: sandboxTemplateSchema,
+			error: [BadRequest, Conflict, ...refused],
 		}),
 		HttpApiEndpoint.post("test", `${root}/:providerId/test`, {
 			params: provider,

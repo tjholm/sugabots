@@ -5,9 +5,11 @@
 #
 #   bun run build:sandbox
 #
-# Builds sugabots-sandbox:latest, the image OpenSandbox providers use unless a
-# workspace sets another. Sugabots makes /workspace and the agents' user when
-# it makes a sandbox, so any image works; this one also has them built in.
+# Builds ghcr.io/nitrictech/sugabots-sandbox:latest, where releases publish it
+# too: the image OpenSandbox providers use unless a workspace sets another, and
+# the one E2B templates are built from. The agents' user is the provider's to
+# make: OpenSandbox's when it makes a sandbox, and E2B's own `user`, uid 1000,
+# so this image has none of its own to clash with them.
 
 ARG NOVNC_VERSION=1.6.0
 ARG WEBSOCKIFY_VERSION=0.13.0
@@ -51,7 +53,7 @@ RUN apt-get update \
 		python3 python3-pip python3-venv \
 		nodejs npm \
 		xvfb x11vnc x11-utils openbox xterm xfonts-base dbus-x11 hsetroot \
-		firefox-esr chromium xdotool scrot xclip fonts-dejavu fonts-noto-color-emoji \
+		chromium xdotool scrot xclip fonts-dejavu fonts-noto-color-emoji \
 	&& ln -s /usr/bin/fdfind /usr/local/bin/fd \
 	&& rm -rf /var/lib/apt/lists/*
 
@@ -66,13 +68,6 @@ COPY --from=novnc /websockify /opt/websockify
 COPY --from=wallpaper /wallpaper.png /usr/share/sugabots-desktop/wallpaper.png
 COPY sugabots-desktop /usr/local/bin/sugabots-desktop
 
-# The agents' user: uid 1000, as the sandbox providers expect. Which user a
-# command runs as is the provider's choice, so the image doesn't switch to it.
-RUN groupadd -g 1000 agent \
-	&& useradd -u 1000 -g 1000 -m -d /home/agent -s /bin/bash agent \
-	&& mkdir -p /workspace \
-	&& chown agent:agent /workspace \
-	&& chmod 755 /usr/local/bin/sugabots-desktop
+RUN mkdir -p /workspace && chmod 755 /usr/local/bin/sugabots-desktop
 
 WORKDIR /workspace
-CMD ["bash"]

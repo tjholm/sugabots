@@ -74,7 +74,7 @@ describe.skipIf(!configured)("sandbox tools, against Postgres and OpenSandbox", 
 					baseUrl: env.OPENSANDBOX_URL,
 					apiKey: env.OPENSANDBOX_API_KEY,
 					// The default image, for its browser: `bun run build:sandbox` first.
-					image: "sugabots-sandbox:latest",
+					image: "ghcr.io/nitrictech/sugabots-sandbox:latest",
 				},
 			}),
 		);

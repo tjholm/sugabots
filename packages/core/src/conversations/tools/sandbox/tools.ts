@@ -70,8 +70,6 @@ interface Failed {
 	error: UserMessage;
 }
 
-const UNAVAILABLE = UserMessage.of`The sandbox could not be reached. Try again shortly.`;
-
 /** Runs `work` in the pod's sandbox, turning a refusal it can act on into a result. */
 async function inSandbox<A>(
 	openSandbox: OpenSandbox,
@@ -83,7 +81,8 @@ async function inSandbox<A>(
 	try {
 		opened = await openSandbox();
 	} catch (cause) {
-		if (cause instanceof Sandboxes.Unavailable) return { status: "failed", error: UNAVAILABLE };
+		if (cause instanceof Sandboxes.Unavailable)
+			return { status: "failed", error: cause.userMessage };
 		throw cause;
 	}
 	const note = arrivalNote(opened.arrival);
@@ -91,7 +90,8 @@ async function inSandbox<A>(
 		work(opened.sandbox).pipe(
 			Effect.map((result) => ({ ...result, ...(note ? { note } : {}) })),
 			Effect.catchTags({
-				SandboxUnavailable: () => Effect.succeed<Failed>({ status: "failed", error: UNAVAILABLE }),
+				SandboxUnavailable: (failure) =>
+					Effect.succeed<Failed>({ status: "failed", error: failure.userMessage }),
 				SandboxFileFailed: (failure) =>
 					Effect.succeed<Failed>({
 						status: "failed",

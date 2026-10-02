@@ -95,3 +95,42 @@ export function useSandboxProviderActions() {
 		}),
 	};
 }
+
+/**
+ * How an E2B provider's template stands. Checked again every few seconds
+ * while it is building, which takes minutes.
+ */
+export function useSandboxTemplate(providerId: string | undefined) {
+	const workspaceId = useWorkspace().workspace?.id;
+	return useQuery({
+		queryKey: ["sandbox-providers", workspaceId, providerId, "template"],
+		queryFn:
+			workspaceId && providerId
+				? ({ signal }) =>
+						Effect.runPromise(
+							client.api.sandboxProviders.template({
+								params: { workspace: workspaceId, providerId },
+							}),
+							{ signal },
+						)
+				: skipToken,
+		refetchInterval: (query) => (query.state.data?.state === "building" ? 5_000 : false),
+	});
+}
+
+export function usePrepareSandboxTemplate(providerId: string) {
+	const workspaceId = useWorkspace().workspace?.id;
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: () => {
+			if (!workspaceId) throw new NotReadyError();
+			return Effect.runPromise(
+				client.api.sandboxProviders.prepareTemplate({
+					params: { workspace: workspaceId, providerId },
+				}),
+			);
+		},
+		onSuccess: (data) =>
+			queryClient.setQueryData(["sandbox-providers", workspaceId, providerId, "template"], data),
+	});
+}

@@ -5,6 +5,7 @@ import {
 	check,
 	primaryKey as compositePrimaryKey,
 	foreignKey,
+	jsonb,
 	pgTable,
 	text,
 	timestamp,
@@ -40,6 +41,8 @@ export const sandboxProvider = pgTable(
 		image: text("image"),
 		enabled: boolean("enabled").notNull().default(false),
 		apiKeyEncrypted: text("api_key_encrypted"),
+		/** The last build of its template that Sugabots started, for a provider that builds them (E2B). */
+		templateBuild: jsonb("template_build").$type<Sandboxes.TemplateBuild>(),
 		lastTestedAt: timestamp("last_tested_at", { withTimezone: true }),
 		lastTestError: text("last_test_error"),
 		createdById: uuid("created_by_id").references(() => user.id, { onDelete: "set null" }),

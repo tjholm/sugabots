@@ -35,6 +35,12 @@ export const layer = layerNoDeps;
  */
 export interface Provider {
 	readonly capabilities: Capabilities;
+	/**
+	 * For a provider that makes sandboxes from a template it builds from an
+	 * image, as E2B does: building the connection's template. Absent for one
+	 * that takes an image as it is, as OpenSandbox does.
+	 */
+	readonly templates?: TemplateBuilds;
 	/** Whether the service answers and accepts the key, without making anything. */
 	readonly check: Effect.Effect<void, Unavailable>;
 	readonly create: (spec: Spec) => Effect.Effect<Sandbox, Unavailable>;
@@ -50,6 +56,21 @@ export interface Provider {
 	/** Throws the sandbox away with everything in it. One that is already gone counts as destroyed. */
 	readonly destroy: (id: SandboxId) => Effect.Effect<void, Unavailable>;
 }
+
+export interface TemplateBuilds {
+	/** Starts building the connection's template from `image`, replacing what it was built from before. */
+	readonly build: (image: string) => Effect.Effect<TemplateBuild, Unavailable>;
+	/** How the template stands: by `build`, the last one started, or by whether it exists at all. */
+	readonly status: (build: TemplateBuild | undefined) => Effect.Effect<TemplateStatus, Unavailable>;
+}
+
+/** A template build the provider started, by its ids there. */
+export interface TemplateBuild {
+	readonly templateId: string;
+	readonly buildId: string;
+}
+
+export type TemplateStatus = "missing" | "building" | "ready" | "failed";
 
 export interface Info {
 	readonly state: "running" | "paused";
@@ -161,11 +182,13 @@ export class Unavailable
 	extends Data.TaggedError("SandboxUnavailable")<{
 		provider: Connection["provider"];
 		cause: unknown;
+		/** What went wrong, when the provider said something people can act on. */
+		reason?: UserMessage;
 	}>
 	implements UserFacing
 {
 	get userMessage() {
-		return UserMessage.of`The sandbox provider didn't answer. Try again shortly.`;
+		return this.reason ?? UserMessage.of`The sandbox provider didn't answer. Try again shortly.`;
 	}
 }
 

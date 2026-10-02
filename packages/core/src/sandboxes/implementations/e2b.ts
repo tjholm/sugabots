@@ -4,6 +4,7 @@ import {
 	Sandbox as E2bSandbox,
 	FileNotFoundError,
 	SandboxNotFoundError,
+	Template,
 	TimeoutError,
 } from "e2b";
 import { Duration, Effect, Redacted } from "effect";
@@ -38,7 +39,12 @@ export const fromE2b = (connection: Sandboxes.E2bConnection): Sandboxes.Provider
 		apiKey: Redacted.value(connection.apiKey),
 		...connection.endpoints,
 	});
-	const unavailable = (cause: unknown) => new Sandboxes.Unavailable({ provider: "e2b", cause });
+	const unavailable = (cause: unknown) =>
+		new Sandboxes.Unavailable({
+			provider: "e2b",
+			cause,
+			...(isMissingTemplate(cause) ? { reason: MISSING_TEMPLATE } : {}),
+		});
 	const missingOr = (id: Sandboxes.SandboxId) => (cause: unknown) =>
 		cause instanceof SandboxNotFoundError
 			? new Sandboxes.Missing({ provider: "e2b", sandboxId: id })
@@ -46,6 +52,30 @@ export const fromE2b = (connection: Sandboxes.E2bConnection): Sandboxes.Provider
 
 	return {
 		capabilities: { pauseKeeps: "memory" },
+		templates: {
+			build: (image) =>
+				Effect.tryPromise({
+					try: async (): Promise<Sandboxes.TemplateBuild> => {
+						const { templateId, buildId } = await Template.buildInBackground(
+							Template().fromImage(image),
+							connection.template,
+							options(),
+						);
+						return { templateId, buildId };
+					},
+					catch: unavailable,
+				}),
+			status: (build) =>
+				Effect.tryPromise({
+					try: async (): Promise<Sandboxes.TemplateStatus> => {
+						if (!build)
+							return (await Template.exists(connection.template, options())) ? "ready" : "missing";
+						const { status } = await Template.getBuildStatus(build, options());
+						return status === "ready" ? "ready" : status === "error" ? "failed" : "building";
+					},
+					catch: unavailable,
+				}),
+		},
 		check: Effect.tryPromise({
 			try: () => E2bSandbox.list({ ...options(), limit: 1 }).nextItems(),
 			catch: unavailable,
@@ -185,4 +215,11 @@ function fileFailure(path: string, cause: unknown): Sandboxes.FileFailed | undef
 /** E2B takes an ArrayBuffer, so a view into a larger buffer is copied to its own. */
 function toArrayBuffer(content: Uint8Array): ArrayBuffer {
 	return content.slice().buffer as ArrayBuffer;
+}
+
+const MISSING_TEMPLATE = UserMessage.of`The workspace's E2B template isn't ready. A workspace admin can prepare it under Sandboxes in the workspace's settings.`;
+
+/** E2B's answer to making a sandbox from a template it doesn't have. */
+function isMissingTemplate(cause: unknown) {
+	return cause instanceof Error && /template .* not found/i.test(cause.message);
 }

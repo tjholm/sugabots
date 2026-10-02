@@ -41,6 +41,12 @@ export interface Interface {
 		testedAt: Date,
 		error?: UserMessage,
 	) => Effect.Effect<void>;
+	/** Remembers the template build Sugabots last started for the provider. */
+	readonly recordTemplateBuild: (
+		workspaceId: string,
+		providerId: string,
+		build: Sandboxes.TemplateBuild,
+	) => Effect.Effect<void>;
 	/** How to reach the provider, enabled or not, for a test; nothing while it lacks a setting it needs. */
 	readonly connection: (
 		workspaceId: string,
@@ -222,6 +228,19 @@ export const make = Effect.gen(function* () {
 							),
 					);
 				}),
+			),
+
+		recordTemplateBuild: (workspaceId, providerId, build) =>
+			operation(
+				"recordTemplateBuild",
+				query((db) =>
+					db
+						.update(sandboxProvider)
+						.set({ templateBuild: build })
+						.where(
+							and(eq(sandboxProvider.workspaceId, workspaceId), eq(sandboxProvider.id, providerId)),
+						),
+				).pipe(Effect.asVoid),
 			),
 
 		connection: (workspaceId, providerId) =>

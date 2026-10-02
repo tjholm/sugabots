@@ -42,6 +42,22 @@ export const sandboxProviderRoutes = HttpApiBuilder.group(
 						.remove({ workspace: params.workspace, providerId: params.providerId })
 						.pipe(asSessionUser, asHttpError(sandboxProviderErrors)),
 				)
+				.handle("template", ({ params }) =>
+					setup.templateStatus({ workspace: params.workspace, providerId: params.providerId }).pipe(
+						Effect.map((state) => ({ state: state ?? null })),
+						asSessionUser,
+						asHttpError(sandboxProviderErrors),
+					),
+				)
+				.handle("prepareTemplate", ({ params }) =>
+					setup
+						.prepareTemplate({ workspace: params.workspace, providerId: params.providerId })
+						.pipe(
+							Effect.map((state) => ({ state })),
+							asSessionUser,
+							asHttpError(sandboxProviderErrors),
+						),
+				)
 				.handle("test", ({ params }) =>
 					setup
 						.test({ workspace: params.workspace, providerId: params.providerId })
@@ -56,4 +72,6 @@ const sandboxProviderErrors = {
 	UrlNotAllowed: BadRequest,
 	SandboxProviderIncomplete: BadRequest,
 	SandboxesNotDestroyed: Conflict,
+	NoTemplates: BadRequest,
+	SandboxUnavailable: Conflict,
 };
