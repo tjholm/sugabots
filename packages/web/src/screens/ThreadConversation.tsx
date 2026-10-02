@@ -172,6 +172,11 @@ export function ThreadConversation({
 							<ToolLine
 								calls={calls}
 								looks={looks}
+								desktop={{
+									threadId: message.threadId,
+									agentId: message.author.id,
+									agentName: message.author.name,
+								}}
 								className={
 									compact
 										? outgoing
