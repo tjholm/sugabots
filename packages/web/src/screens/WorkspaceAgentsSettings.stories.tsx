@@ -186,6 +186,7 @@ function memberHandlers() {
 				deleteAgents: false,
 				manageRoutines: false,
 				manageConnections: false,
+				manageSandbox: false,
 			},
 		})),
 	});

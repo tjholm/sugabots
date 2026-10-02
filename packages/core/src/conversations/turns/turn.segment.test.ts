@@ -16,6 +16,7 @@ import { Chats } from "../chats/chats.ts";
 import { conversationsForTests } from "../testing.ts";
 import { BuiltInTools } from "../tools/built-in.ts";
 import { ConnectionTools } from "../tools/connections.ts";
+import { SandboxTools } from "../tools/sandbox.ts";
 import { SAVE_INSTRUCTIONS_TOOL } from "../tools/save-instructions/tool.ts";
 import { type PreparedTurn, TurnExecution } from "./execution.ts";
 import { MAX_TURN_RUNS } from "./lifecycle.ts";
@@ -77,6 +78,7 @@ describe.skipIf(!process.env.DATABASE_URL)("a turn's segment, against Postgres",
 							outside.events ?? EventBus.inProcess({ store: EventStore.inMemory() }),
 						),
 						Layer.succeed(BuiltInTools.Service, outside.builtInTools ?? BuiltInTools.none),
+						Layer.succeed(SandboxTools.Service, SandboxTools.none),
 						Layer.succeed(ConnectionTools.Service, outside.connectionTools ?? ConnectionTools.none),
 					),
 				),

@@ -9,6 +9,7 @@ import { SEARCH_HISTORY_TOOL } from "../threads/message-text.ts";
 import type { Collaborations } from "../tools/collaborate/collaborations.ts";
 import { collaborateTool } from "../tools/collaborate/tool.ts";
 import type { OfferedTool } from "../tools/connections.ts";
+import { READ_FILE_TOOL } from "../tools/sandbox/tools.ts";
 import { SAVE_INSTRUCTIONS_TOOL, saveInstructionsTool } from "../tools/save-instructions/tool.ts";
 import { searchHistoryTool } from "../tools/search-history/tool.ts";
 import type { ApprovedToolCalls } from "./approvals/approved-calls.ts";
@@ -21,12 +22,13 @@ import type { ToolCallRepository } from "./tool-calls/repository.ts";
  * this is the only place that knows which ones exist, so adding a tool is a
  * folder and a line here rather than a change to the turn's steps.
  *
- * Three kinds. The crew tool `collaborate` reaches other agents
- * and leave their own records. The built-in tools do work for the agent, and
- * the connection tools do work at a server the workspace configured; every
- * call to either is recorded as a `tool_call` part of the reply (`calls/`).
- * A connection tool turned off is offered all the same, and each call to it is
- * recorded as refused without reaching the server.
+ * Four kinds. The crew tool `collaborate` reaches other agents
+ * and leave their own records. The built-in tools do work for the agent, the
+ * sandbox tools work in the pod's sandbox, and the connection tools do work
+ * at a server the workspace configured; every call to any of them is recorded
+ * as a `tool_call` part of the reply (`calls/`). A connection tool turned off
+ * is offered all the same, and each call to it is recorded as refused without
+ * reaching the server.
  * `search_history` is recorded the same way, and offered only once the
  * thread has been compacted; `save_instructions` too, offered only while the
  * agent interviews its creator.
@@ -41,6 +43,8 @@ export interface ToolDependencies {
 	approvalBoundTools?: ReadonlySet<string>;
 	/** The built-in tools this installation offers, by key. */
 	builtIn: ToolSet;
+	/** The tools that work in the pod's sandbox, when the installation has sandboxes. */
+	sandbox?: ToolSet;
 	/** The pod connections' tools, keyed `handle__tool`, each with whether it changes things. */
 	connections?: Record<string, OfferedTool>;
 	/** Where an interviewing agent's own instructions are saved. */
@@ -85,6 +89,11 @@ export function toolsForTurn(prepared: PreparedTurn, deps: ToolDependencies): To
 	};
 	for (const [key, tool] of Object.entries(deps.builtIn)) {
 		tools[key] = recorded(key, tool, recording);
+	}
+	// Once a command or a write has started, the sandbox may have changed, so
+	// a turn that fails afterwards is not run again.
+	for (const [key, tool] of Object.entries(deps.sandbox ?? {})) {
+		tools[key] = recorded(key, tool, { ...recording, mutating: key !== READ_FILE_TOOL });
 	}
 	for (const [key, offered] of Object.entries(deps.connections ?? {})) {
 		const approvalBound = deps.approvalBoundTools?.has(key) ?? false;
