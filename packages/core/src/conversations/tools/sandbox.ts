@@ -6,6 +6,7 @@ import { PodSandboxes } from "../../sandboxes/pod-sandboxes.ts";
 import { SandboxProviderRepository } from "../../sandboxes/sandbox-provider-repository.ts";
 import {
 	openOncePerTurn,
+	placeOf,
 	READ_FILE_TOOL,
 	RUN_COMMAND_TOOL,
 	readFileTool,
@@ -23,14 +24,11 @@ import {
  */
 export interface Interface {
 	/**
-	 * The tools for a turn, `holder`, in the pod. The turn's lease on the
+	 * The tools for a turn in its agent's pod. The turn's lease on the
 	 * sandbox is renewed while the scope is open and released when it closes,
 	 * which is when the turn's run ends, or it stops to wait for an approval.
 	 */
-	readonly forPod: (
-		pod: PodSandboxes.Pod,
-		holder: string,
-	) => Effect.Effect<ToolSet, never, Scope.Scope>;
+	readonly forTurn: (turn: Turn) => Effect.Effect<ToolSet, never, Scope.Scope>;
 }
 
 export class Service extends Context.Service<Service, Interface>()("@sugabots/core/SandboxTools") {}
@@ -39,26 +37,36 @@ export const make = Effect.gen(function* () {
 	const providers = yield* SandboxProviderRepository.Service;
 	const podSandboxes = yield* PodSandboxes.Service;
 	return Service.of({
-		forPod: (pod, holder) =>
+		forTurn: ({ pod, turnId, threadId, agentId }) =>
 			Effect.gen(function* (): Effect.fn.Return<ToolSet, never, Scope.Scope> {
 				const provider = yield* providers.enabled(pod.workspaceId);
 				if (!provider) return {};
-				yield* Effect.addFinalizer(() => podSandboxes.release(holder));
+				yield* Effect.addFinalizer(() => podSandboxes.release(turnId));
 				yield* Effect.forkScoped(
-					podSandboxes.renew(holder).pipe(Effect.delay(PodSandboxes.LEASE_RENEWAL), Effect.forever),
+					podSandboxes.renew(turnId).pipe(Effect.delay(PodSandboxes.LEASE_RENEWAL), Effect.forever),
 				);
 				// The tools run as promises; the opening logs through the turn's services.
 				const runPromiseExit = Effect.runPromiseExitWith(yield* Effect.context<never>());
+				const place = placeOf({ threadId, agentId });
+				const prepared = podSandboxes.open(pod, provider, turnId).pipe(
+					// The folders are made on first use, so any sandbox gains them.
+					Effect.tap(({ sandbox }) =>
+						sandbox.exec(`mkdir -p '${place.folder}' '${place.home}'`, {
+							timeout: "30 seconds",
+							maxOutputCharacters: 2_000,
+						}),
+					),
+				);
 				const openSandbox = openOncePerTurn(() =>
-					runPromiseExit(podSandboxes.open(pod, provider, holder)).then((exit) => {
+					runPromiseExit(prepared).then((exit) => {
 						if (Exit.isSuccess(exit)) return exit.value;
 						throw Cause.squash(exit.cause);
 					}),
 				);
 				return {
-					[RUN_COMMAND_TOOL]: runCommandTool(openSandbox),
-					[READ_FILE_TOOL]: readFileTool(openSandbox),
-					[WRITE_FILE_TOOL]: writeFileTool(openSandbox),
+					[RUN_COMMAND_TOOL]: runCommandTool(openSandbox, place),
+					[READ_FILE_TOOL]: readFileTool(openSandbox, place),
+					[WRITE_FILE_TOOL]: writeFileTool(openSandbox, place),
 				};
 			}),
 	});
@@ -70,5 +78,14 @@ export const layer = layerNoDeps.pipe(
 	Layer.provide([PodSandboxes.layer, SandboxProviderRepository.layer]),
 );
 
+/** A turn that may use its pod's sandbox. */
+export interface Turn {
+	readonly pod: PodSandboxes.Pod;
+	/** Holds the sandbox's lease while the turn runs. */
+	readonly turnId: string;
+	readonly threadId: string;
+	readonly agentId: string;
+}
+
 /** No sandbox tools, for cases that offer none. */
-export const none: Interface = { forPod: () => Effect.succeed({}) };
+export const none: Interface = { forTurn: () => Effect.succeed({}) };

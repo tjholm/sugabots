@@ -387,13 +387,15 @@ const streamReply = (
 				prepared.context.agent.disabledTools,
 			);
 			const sandbox = prepared.context.agent.usesSandbox
-				? yield* sandboxTools.forPod(
-						{
+				? yield* sandboxTools.forTurn({
+						pod: {
 							workspaceId: prepared.context.thread.workspaceId,
 							podId: prepared.context.agent.podId,
 						},
-						prepared.turnId,
-					)
+						turnId: prepared.turnId,
+						threadId: prepared.context.thread.id,
+						agentId: prepared.context.agent.id,
+					})
 				: {};
 			// The connections' sessions live as long as the turn.
 			const connections = yield* Effect.acquireRelease(

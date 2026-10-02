@@ -17,6 +17,28 @@ const MAX_READ_CHARACTERS = 100_000;
 const MAX_WRITE_CHARACTERS = 1_000_000;
 
 /**
+ * Where a turn works in the pod's sandbox. Both are under the workspace, so
+ * they last as long as the sandbox does and come across when it moves to a
+ * new image.
+ */
+export interface Place {
+	/**
+	 * The thread's folder: where commands start and relative paths resolve.
+	 * Shared by the agents in the thread, and kept between its turns.
+	 */
+	readonly folder: string;
+	/** The agent's home, its `HOME`: its own across every thread in the pod. */
+	readonly home: string;
+}
+
+export function placeOf(turn: { threadId: string; agentId: string }): Place {
+	return {
+		folder: `${Sandboxes.WORKSPACE_DIRECTORY}/threads/${turn.threadId}`,
+		home: `${Sandboxes.WORKSPACE_DIRECTORY}/agents/${turn.agentId}`,
+	};
+}
+
+/**
  * Opens the pod's sandbox on the first call that needs it, and reuses it for
  * the rest of the turn, so a turn that never runs anything never starts one.
  */
@@ -94,9 +116,9 @@ function arrivalNote(arrival: PodSandboxes.Opened["arrival"]): UserMessage | und
 	}
 }
 
-/** A path the agent gave, relative to the workspace unless it starts with `/`. */
-function absolute(path: string) {
-	return posix.resolve(Sandboxes.WORKSPACE_DIRECTORY, path);
+/** A path the agent gave, relative to the thread's folder unless it starts with `/`. */
+function absolute(place: Place, path: string) {
+	return posix.resolve(place.folder, path);
 }
 
 function shown(output: Sandboxes.CapturedOutput) {
@@ -105,13 +127,14 @@ function shown(output: Sandboxes.CapturedOutput) {
 		: output.text;
 }
 
-const path = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4_096)).annotate({
-	description: `A path in the sandbox, relative to ${Sandboxes.WORKSPACE_DIRECTORY} unless it starts with /`,
-});
+const pathIn = (place: Place) =>
+	Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4_096)).annotate({
+		description: `A path in the sandbox, relative to ${place.folder} unless it starts with /`,
+	});
 
-export function runCommandTool(openSandbox: OpenSandbox) {
+export function runCommandTool(openSandbox: OpenSandbox, place: Place) {
 	return tool({
-		description: `Run a bash command in the pod's sandbox, a Linux machine shared by the agents in this pod. Commands start in ${Sandboxes.WORKSPACE_DIRECTORY}, where work is kept between turns; nothing else carries over between commands, so cd or export in the same command. Returns the exit code and the end of stdout and stderr. A command still running at its timeout is stopped. It can't ask a person anything, so pass flags that skip prompts.`,
+		description: `Run a bash command in the pod's sandbox, a Linux machine shared by the agents in this pod. Commands start in this thread's folder, ${place.folder}: a scratchpad kept between the thread's turns and shared with the other agents in the thread, so clone and build here. Your home, ${place.home} (also $HOME), is your own and kept across every thread in the pod: keep notes, settings and tools you want everywhere there. Nothing else carries over between commands, so cd or export in the same command. Returns the exit code and the end of stdout and stderr. A command still running at its timeout is stopped. It can't ask a person anything, so pass flags that skip prompts. Commands run without a screen; when a task needs one, such as a browser, and the sandbox has sugabots-desktop, run "sugabots-desktop start" to get your own desktop, set the DISPLAY it prints for the programs you start, and use scrot to take screenshots and xdotool to click and type. Stop it with "sugabots-desktop stop <number>" when you're done.`,
 		inputSchema: Schema.Struct({
 			command: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(20_000)).annotate({
 				description: "The bash command to run",
@@ -129,6 +152,8 @@ export function runCommandTool(openSandbox: OpenSandbox) {
 			inSandbox(openSandbox, (sandbox) =>
 				sandbox
 					.exec(`bash -lc ${shellQuoted(command)}`, {
+						cwd: place.folder,
+						env: { HOME: place.home },
 						timeout: `${timeout_seconds} seconds`,
 						maxOutputCharacters: MAX_OUTPUT_CHARACTERS,
 					})
@@ -145,16 +170,16 @@ export function runCommandTool(openSandbox: OpenSandbox) {
 	});
 }
 
-export function readFileTool(openSandbox: OpenSandbox) {
+export function readFileTool(openSandbox: OpenSandbox, place: Place) {
 	return tool({
 		description: `Read a text file in the pod's sandbox. Long files are cut off; use run_command with head, tail or grep for parts of them.`,
-		inputSchema: Schema.Struct({ path }).pipe(
+		inputSchema: Schema.Struct({ path: pathIn(place) }).pipe(
 			Schema.toStandardSchemaV1,
 			Schema.toStandardJSONSchemaV1,
 		),
 		execute: ({ path }) =>
 			inSandbox(openSandbox, (sandbox) =>
-				sandbox.readFile(absolute(path)).pipe(
+				sandbox.readFile(absolute(place, path)).pipe(
 					Effect.map((bytes) => {
 						const text = new TextDecoder().decode(bytes);
 						return text.length > MAX_READ_CHARACTERS
@@ -169,11 +194,11 @@ export function readFileTool(openSandbox: OpenSandbox) {
 	});
 }
 
-export function writeFileTool(openSandbox: OpenSandbox) {
+export function writeFileTool(openSandbox: OpenSandbox, place: Place) {
 	return tool({
 		description: `Write a text file in the pod's sandbox, replacing it if it exists and making its directories.`,
 		inputSchema: Schema.Struct({
-			path,
+			path: pathIn(place),
 			content: Schema.String.check(Schema.isMaxLength(MAX_WRITE_CHARACTERS)).annotate({
 				description: "The whole of the file's new content",
 			}),
@@ -181,8 +206,8 @@ export function writeFileTool(openSandbox: OpenSandbox) {
 		execute: ({ path, content }) =>
 			inSandbox(openSandbox, (sandbox) =>
 				sandbox
-					.writeFile(absolute(path), new TextEncoder().encode(content))
-					.pipe(Effect.as({ written: absolute(path) })),
+					.writeFile(absolute(place, path), new TextEncoder().encode(content))
+					.pipe(Effect.as({ written: absolute(place, path) })),
 			),
 	});
 }
