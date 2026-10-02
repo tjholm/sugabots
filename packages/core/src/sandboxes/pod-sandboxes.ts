@@ -37,6 +37,15 @@ export interface Interface {
 		provider: SandboxProviderRepository.Configured,
 		holder: string,
 	) => Effect.Effect<Opened, Sandboxes.Unavailable>;
+	/**
+	 * The pod's sandbox as it is, for watching: never made or replaced, and
+	 * resumed only if it was paused. Undefined when the pod has none, or its
+	 * provider has lost it. `holder` keeps it awake until released.
+	 */
+	readonly watch: (
+		pod: Pod,
+		holder: string,
+	) => Effect.Effect<Sandboxes.Sandbox | undefined, Sandboxes.Unavailable>;
 	/** Extends `holder`'s leases. Nothing happens if it has none. */
 	readonly renew: (holder: string) => Effect.Effect<void>;
 	/** Ends `holder`'s leases, starting the idle time of the sandboxes it held. */
@@ -265,8 +274,8 @@ export const make = Effect.gen(function* () {
 				),
 		);
 
-	/** How many turns hold a live lease on the sandbox. */
-	const turnsUsing = (sandboxId: string) =>
+	/** Who holds a live lease on the sandbox: turns, and people watching a desktop. */
+	const holders = (sandboxId: string) =>
 		Effect.gen(function* () {
 			const now = yield* DateTime.nowAsDate;
 			const leases = yield* query((db) =>
@@ -275,12 +284,15 @@ export const make = Effect.gen(function* () {
 					.from(sandboxLease)
 					.where(and(eq(sandboxLease.sandboxId, sandboxId), gt(sandboxLease.expiresAt, now))),
 			);
-			return leases.length;
+			const watching = leases.filter(({ holder }) =>
+				holder.startsWith(VIEWER_HOLDER_PREFIX),
+			).length;
+			return { turns: leases.length - watching, watching };
 		});
 
 	/** Fails while a turn is using the sandbox, which a reset or upgrade would pull out from under it. */
 	const requireIdle = (sandboxId: string) =>
-		Effect.flatMap(turnsUsing(sandboxId), (turns) =>
+		Effect.flatMap(holders(sandboxId), ({ turns }) =>
 			turns > 0 ? Effect.fail(new SandboxInUse({ turns })) : Effect.void,
 		);
 
@@ -289,6 +301,28 @@ export const make = Effect.gen(function* () {
 			operation(
 				"open",
 				oneAtATime(pod.podId)(Effect.tap(opened(pod, provider), () => lease(pod, holder))),
+			),
+
+		watch: (pod, holder) =>
+			operation(
+				"watch",
+				oneAtATime(pod.podId)(
+					Effect.gen(function* () {
+						const row = yield* recorded(pod);
+						if (!row) return undefined;
+						const configured = yield* providers.connection(row.workspaceId, row.sandboxProviderId);
+						if (!configured) return undefined;
+						const watched = yield* sandboxes
+							.forConnection(configured.connection)
+							.open(row.providerSandboxId)
+							.pipe(
+								Effect.map(({ sandbox }) => sandbox),
+								Effect.catchTag("SandboxMissing", () => Effect.succeed(undefined)),
+							);
+						if (watched) yield* lease(pod, holder);
+						return watched;
+					}),
+				),
 			),
 
 		renew: (holder) =>
@@ -408,12 +442,14 @@ export const make = Effect.gen(function* () {
 				Effect.gen(function* (): Effect.fn.Return<Status, never, Database> {
 					const row = yield* recorded(pod);
 					if (!row) return { kind: "none" };
+					const using = yield* holders(row.id);
 					const present = {
 						kind: "present" as const,
 						providerId: row.sandboxProviderId,
 						createdAt: row.createdAt,
 						lastUsedAt: row.lastUsedAt,
-						turnsUsing: yield* turnsUsing(row.id),
+						turnsUsing: using.turns,
+						peopleWatching: using.watching,
 					};
 					const configured = yield* providers.connection(row.workspaceId, row.sandboxProviderId);
 					if (!configured) return { ...present, state: "unreachable", upgradeAvailable: false };
@@ -608,9 +644,13 @@ export type Status =
 			readonly createdAt: Date;
 			readonly lastUsedAt: Date;
 			readonly turnsUsing: number;
+			readonly peopleWatching: number;
 			/** Whether the enabled provider would make it from another image, or is another provider. */
 			readonly upgradeAvailable: boolean;
 	  };
+
+/** The holder a person watching a desktop takes a lease as: `viewer:` and an id. */
+export const VIEWER_HOLDER_PREFIX = "viewer:";
 
 /** Where an upgrade packs the workspace in the old sandbox, and unpacks it in the new. */
 const ARCHIVE = "/tmp/sugabots-workspace.tgz";

@@ -3,10 +3,12 @@ export * as SandboxTools from "./sandbox.ts";
 import type { ToolSet } from "ai";
 import { Cause, Context, Effect, Exit, Layer, type Scope } from "effect";
 import { serviceOperations } from "../../database/database.ts";
+import { modelAcceptsImages } from "../../providers/model-providers/model-provider-reads.ts";
 import { allowedHostsOf } from "../../sandboxes/allowed-hosts.ts";
 import { PodSandboxes } from "../../sandboxes/pod-sandboxes.ts";
 import { SandboxNetwork } from "../../sandboxes/sandbox-network.ts";
 import { SandboxProviderRepository } from "../../sandboxes/sandbox-provider-repository.ts";
+import { browserSession, browserTools } from "./browser/browser.ts";
 import { REQUEST_NETWORK_ACCESS_TOOL, requestNetworkAccessTool } from "./network-access/tool.ts";
 import {
 	openOncePerTurn,
@@ -21,11 +23,12 @@ import {
 
 /**
  * The tools that work in a pod's sandbox: `run_command`, `read_file` and
- * `write_file`, and `request_network_access`, whose calls wait for a person,
- * to reach a host the sandbox may not. Offered while the workspace has an
- * enabled sandbox provider, looked up on every call, so enabling one applies
- * from the next turn. The sandbox is opened by a turn's first call to one of
- * the tools, not when the turn starts.
+ * `write_file`, and the `browser_` tools of a browser the agent drives there
+ * (see `browser/browser.ts`), and `request_network_access`, whose calls wait
+ * for a person, to reach a host the sandbox may not. Offered while the workspace has an enabled sandbox provider,
+ * looked up on every call, so enabling one applies from the next turn. The
+ * sandbox is opened by a turn's first call to one of the tools, not when the
+ * turn starts.
  */
 export interface Interface {
 	/**
@@ -53,11 +56,14 @@ export const make = Effect.gen(function* () {
 	const network = yield* SandboxNetwork.Service;
 	const operation = yield* serviceOperations<Interface>("SandboxTools");
 	return Service.of({
-		forTurn: ({ pod, turnId, threadId, agentId }) =>
+		forTurn: ({ pod, turnId, threadId, agentId, model }) =>
 			Effect.gen(function* (): Effect.fn.Return<Offered, never, Scope.Scope> {
 				const provider = yield* providers.enabled(pod.workspaceId);
 				if (!provider) return NOTHING;
-				const allowedHosts = yield* operation("forTurn", allowedHostsOf(pod.workspaceId));
+				const [acceptsImages, allowedHosts] = yield* operation(
+					"forTurn",
+					Effect.all([modelAcceptsImages(pod.workspaceId, model), allowedHostsOf(pod.workspaceId)]),
+				);
 				yield* Effect.addFinalizer(() => podSandboxes.release(turnId));
 				yield* Effect.forkScoped(
 					podSandboxes.renew(turnId).pipe(Effect.delay(PodSandboxes.LEASE_RENEWAL), Effect.forever),
@@ -80,11 +86,14 @@ export const make = Effect.gen(function* () {
 						throw Cause.squash(exit.cause);
 					}),
 				);
+				const browser = browserSession(openSandbox, place, { threadId, agentId });
+				yield* Effect.addFinalizer(() => Effect.promise(() => browser.close()));
 				return {
 					tools: {
 						[RUN_COMMAND_TOOL]: runCommandTool(openSandbox, place, allowedHosts),
-						[READ_FILE_TOOL]: readFileTool(openSandbox, place),
+						[READ_FILE_TOOL]: readFileTool(openSandbox, place, acceptsImages),
 						[WRITE_FILE_TOOL]: writeFileTool(openSandbox, place),
+						...browserTools(browser, acceptsImages),
 					},
 					requests: {
 						[REQUEST_NETWORK_ACCESS_TOOL]: requestNetworkAccessTool({
@@ -115,6 +124,8 @@ export interface Turn {
 	readonly turnId: string;
 	readonly threadId: string;
 	readonly agentId: string;
+	/** The agent's model, which decides whether results may carry images. */
+	readonly model: string;
 }
 
 /** No sandbox tools, for cases that offer none. */
