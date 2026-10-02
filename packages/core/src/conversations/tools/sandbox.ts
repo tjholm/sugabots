@@ -1,7 +1,7 @@
 export * as SandboxTools from "./sandbox.ts";
 
 import type { ToolSet } from "ai";
-import { Cause, Context, Effect, Exit, Layer } from "effect";
+import { Cause, Context, Effect, Exit, Layer, type Scope } from "effect";
 import { PodSandboxes } from "../../sandboxes/pod-sandboxes.ts";
 import { SandboxProviderRepository } from "../../sandboxes/sandbox-provider-repository.ts";
 import {
@@ -22,7 +22,15 @@ import {
  * turn starts.
  */
 export interface Interface {
-	readonly forPod: (pod: PodSandboxes.Pod) => Effect.Effect<ToolSet>;
+	/**
+	 * The tools for a turn, `holder`, in the pod. The turn's lease on the
+	 * sandbox is renewed while the scope is open and released when it closes,
+	 * which is when the turn's run ends, or it stops to wait for an approval.
+	 */
+	readonly forPod: (
+		pod: PodSandboxes.Pod,
+		holder: string,
+	) => Effect.Effect<ToolSet, never, Scope.Scope>;
 }
 
 export class Service extends Context.Service<Service, Interface>()("@sugabots/core/SandboxTools") {}
@@ -31,14 +39,18 @@ export const make = Effect.gen(function* () {
 	const providers = yield* SandboxProviderRepository.Service;
 	const podSandboxes = yield* PodSandboxes.Service;
 	return Service.of({
-		forPod: (pod) =>
-			Effect.gen(function* (): Effect.fn.Return<ToolSet> {
+		forPod: (pod, holder) =>
+			Effect.gen(function* (): Effect.fn.Return<ToolSet, never, Scope.Scope> {
 				const provider = yield* providers.enabled(pod.workspaceId);
 				if (!provider) return {};
+				yield* Effect.addFinalizer(() => podSandboxes.release(holder));
+				yield* Effect.forkScoped(
+					podSandboxes.renew(holder).pipe(Effect.delay(PodSandboxes.LEASE_RENEWAL), Effect.forever),
+				);
 				// The tools run as promises; the opening logs through the turn's services.
 				const runPromiseExit = Effect.runPromiseExitWith(yield* Effect.context<never>());
 				const openSandbox = openOncePerTurn(() =>
-					runPromiseExit(podSandboxes.open(pod, provider)).then((exit) => {
+					runPromiseExit(podSandboxes.open(pod, provider, holder)).then((exit) => {
 						if (Exit.isSuccess(exit)) return exit.value;
 						throw Cause.squash(exit.cause);
 					}),

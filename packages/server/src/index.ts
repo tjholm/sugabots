@@ -25,6 +25,7 @@ import { PresetSeeding } from "@sugabots/core/providers/model-providers/preset-s
 import { Models } from "@sugabots/core/providers/models/models";
 import { Egress } from "@sugabots/core/providers/network/egress";
 import { SearchProviderSetup } from "@sugabots/core/providers/search-providers/search-provider-setup";
+import { PodSandboxes } from "@sugabots/core/sandboxes/pod-sandboxes";
 import { SandboxProviderSetup } from "@sugabots/core/sandboxes/sandbox-provider-setup";
 import { AgentAdministration } from "@sugabots/core/workspaces/agents/agent-administration";
 import { Membership } from "@sugabots/core/workspaces/membership/membership";
@@ -98,13 +99,15 @@ const ConversationServices = Conversations.layer.pipe(
 
 /**
  * What runs without a request: the workflows, the routine scheduler, the
- * nightly event prune, and seeding the preset providers into every workspace.
+ * nightly event prune, seeding the preset providers into every workspace, and
+ * pausing idle sandboxes.
  */
 const Background = Layer.mergeAll(
 	ConversationWorkflows.layer,
 	Routines.schedulerLayer,
 	EventPruning.layer,
 	PresetSeeding.layer,
+	PodSandboxes.pauseSweepLayer,
 );
 
 /** The API and the web app on `PORT`, with better-auth answering who is calling. */

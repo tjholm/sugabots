@@ -1,7 +1,14 @@
 import { eq } from "drizzle-orm";
 import { Effect, Layer, Redacted } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { pod, sandbox, user, workspace, workspaceMember } from "../database/schema.ts";
+import {
+	pod,
+	sandbox,
+	sandboxLease,
+	user,
+	workspace,
+	workspaceMember,
+} from "../database/schema.ts";
 import { closeDatabase, onDatabase, runOnPostgres } from "../database/testing.ts";
 import { PodSandboxes } from "./pod-sandboxes.ts";
 import { SandboxProviderRepository } from "./sandbox-provider-repository.ts";
@@ -16,6 +23,7 @@ const env = process.env;
 const configured = env.DATABASE_URL && env.OPENSANDBOX_URL && env.OPENSANDBOX_API_KEY;
 const SLOW = 180_000;
 const IMAGE = "debian:bookworm-slim";
+const HOLDER = "turn-under-test";
 
 describe.skipIf(!configured)("pod sandboxes, against Postgres and OpenSandbox", () => {
 	const connection: Sandboxes.OpenSandboxConnection = {
@@ -108,7 +116,7 @@ describe.skipIf(!configured)("pod sandboxes, against Postgres and OpenSandbox", 
 	};
 
 	const open = async () => {
-		const opened = await runOnPostgres(podSandboxes.open(thePod, await enabledProvider()));
+		const opened = await runOnPostgres(podSandboxes.open(thePod, await enabledProvider(), HOLDER));
 		if (!made.includes(opened.sandbox.id)) made.push(opened.sandbox.id);
 		return opened;
 	};
@@ -204,6 +212,71 @@ describe.skipIf(!configured)("pod sandboxes, against Postgres and OpenSandbox", 
 				db.select().from(sandbox).where(eq(sandbox.workspaceId, thePod.workspaceId)),
 			);
 			expect(left).toHaveLength(0);
+		},
+		SLOW,
+	);
+
+	/** Makes the pod's sandbox look unused for longer than the idle window. */
+	const idleForAnHour = () =>
+		onDatabase((db) =>
+			db
+				.update(sandbox)
+				.set({ lastUsedAt: new Date(Date.now() - 60 * 60 * 1000) })
+				.where(eq(sandbox.podId, thePod.podId)),
+		);
+	const pausedAt = async () =>
+		(
+			await onDatabase((db) =>
+				db
+					.select({ pausedAt: sandbox.pausedAt })
+					.from(sandbox)
+					.where(eq(sandbox.podId, thePod.podId)),
+			)
+		)[0]?.pausedAt;
+
+	it(
+		"never pauses a sandbox a turn holds",
+		async () => {
+			await open();
+			await idleForAnHour();
+
+			await runOnPostgres(podSandboxes.pauseIdle);
+
+			expect(await pausedAt()).toBeNull();
+		},
+		SLOW,
+	);
+
+	it(
+		"pauses a sandbox once its turns have let go and it has sat idle, and resumes it on next use",
+		async () => {
+			const first = await open();
+			await runOnPostgres(podSandboxes.release(HOLDER));
+			await idleForAnHour();
+
+			await runOnPostgres(podSandboxes.pauseIdle);
+
+			expect(await pausedAt()).toBeInstanceOf(Date);
+			const reopened = await open();
+			expect(reopened.sandbox.id).toBe(first.sandbox.id);
+			expect(reopened.arrival).toBe("rebooted");
+			expect(await pausedAt()).toBeNull();
+		},
+		SLOW,
+	);
+
+	it(
+		"treats a lease that wasn't renewed as let go",
+		async () => {
+			await open();
+			await onDatabase((db) =>
+				db.update(sandboxLease).set({ expiresAt: new Date(Date.now() - 1000) }),
+			);
+			await idleForAnHour();
+
+			await runOnPostgres(podSandboxes.pauseIdle);
+
+			expect(await pausedAt()).toBeInstanceOf(Date);
 		},
 		SLOW,
 	);

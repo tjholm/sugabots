@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import {
 	boolean,
 	check,
+	primaryKey as compositePrimaryKey,
 	foreignKey,
 	pgTable,
 	text,
@@ -71,6 +72,10 @@ export const sandbox = pgTable(
 		sandboxProviderId: uuid("sandbox_provider_id").notNull(),
 		/** The provider's own id for it. */
 		providerSandboxId: text("provider_sandbox_id").$type<Sandboxes.SandboxId>().notNull(),
+		/** When it was paused for sitting idle; null while it runs. */
+		pausedAt: timestamp("paused_at", { withTimezone: true }),
+		/** When a turn last let go of it, which is when its idle time starts. */
+		lastUsedAt: stamp("last_used_at"),
 		createdAt: stamp("created_at"),
 	},
 	(table) => [
@@ -89,3 +94,21 @@ export const sandbox = pgTable(
 );
 
 export type SandboxRow = typeof sandbox.$inferSelect;
+
+/**
+ * A turn using a sandbox, which keeps it from being paused. The turn renews
+ * it while it runs and deletes it when it ends; one left behind by a process
+ * that stopped simply expires.
+ */
+export const sandboxLease = pgTable(
+	"sandbox_lease",
+	{
+		sandboxId: uuid("sandbox_id")
+			.notNull()
+			.references(() => sandbox.id, { onDelete: "cascade" }),
+		/** The turn holding it. */
+		holder: text("holder").notNull(),
+		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+	},
+	(table) => [compositePrimaryKey({ columns: [table.sandboxId, table.holder] })],
+);
