@@ -8,6 +8,7 @@ import { allowedHostsOf, blockedHostsOf } from "../../sandboxes/allowed-hosts.ts
 import { PodSandboxes } from "../../sandboxes/pod-sandboxes.ts";
 import { SandboxNetwork } from "../../sandboxes/sandbox-network.ts";
 import { SandboxProviderRepository } from "../../sandboxes/sandbox-provider-repository.ts";
+import { SandboxSoftware } from "../../sandboxes/sandbox-software.ts";
 import type { UserMessage } from "../../user-message.ts";
 import { browserSession, browserTools } from "./browser/browser.ts";
 import { REQUEST_NETWORK_ACCESS_TOOL, requestNetworkAccess } from "./network-access/tool.ts";
@@ -21,6 +22,8 @@ import {
 	WRITE_FILE_TOOL,
 	writeFileTool,
 } from "./sandbox/tools.ts";
+import { syncSoftware } from "./software/profile.ts";
+import { REQUEST_SOFTWARE_TOOL, requestSoftware } from "./software/tool.ts";
 
 /**
  * The tools that work in a pod's sandbox: `run_command`, `read_file` and
@@ -64,6 +67,7 @@ export const make = Effect.gen(function* () {
 	const providers = yield* SandboxProviderRepository.Service;
 	const podSandboxes = yield* PodSandboxes.Service;
 	const network = yield* SandboxNetwork.Service;
+	const software = yield* SandboxSoftware.Service;
 	const operation = yield* serviceOperations<Interface>("SandboxTools");
 	return Service.of({
 		forTurn: ({ pod, turnId, threadId, agentId, model }) =>
@@ -93,6 +97,24 @@ export const make = Effect.gen(function* () {
 							maxOutputCharacters: 2_000,
 						}),
 					),
+					// As is the pod's software: a new sandbox installs it, and one that
+					// has it builds nothing.
+					Effect.tap(({ sandbox }) =>
+						software.packagesOf(pod).pipe(
+							Effect.flatMap((packages) => syncSoftware(sandbox, packages)),
+							Effect.tap((synced) =>
+								synced.exitCode === 0
+									? Effect.void
+									: Effect.logWarning(
+											"Could not give a sandbox its pod's software",
+											synced.stderr.text,
+										),
+							),
+							Effect.catchTag("SandboxUnavailable", (failure) =>
+								Effect.logWarning("Could not give a sandbox its pod's software", failure),
+							),
+						),
+					),
 				);
 				const openSandbox = openOncePerTurn(() =>
 					runPromiseExit(prepared).then((exit) => {
@@ -102,6 +124,11 @@ export const make = Effect.gen(function* () {
 				);
 				const browser = browserSession(openSandbox, place, { threadId, agentId });
 				yield* Effect.addFinalizer(() => Effect.promise(() => browser.close()));
+				const runEffect = <A, E>(effect: Effect.Effect<A, E>) =>
+					runPromiseExit(effect).then((exit) => {
+						if (Exit.isSuccess(exit)) return exit.value;
+						throw Cause.squash(exit.cause);
+					});
 				return {
 					tools: {
 						[RUN_COMMAND_TOOL]: runCommandTool(openSandbox, place, allowedHosts),
@@ -114,11 +141,13 @@ export const make = Effect.gen(function* () {
 							turnId,
 							network,
 							blocked: blocked.map((row) => row.host),
-							run: (effect) =>
-								runPromiseExit(effect).then((exit) => {
-									if (Exit.isSuccess(exit)) return exit.value;
-									throw Cause.squash(exit.cause);
-								}),
+							run: runEffect,
+						}),
+						[REQUEST_SOFTWARE_TOOL]: requestSoftware({
+							turnId,
+							software,
+							openSandbox,
+							run: runEffect,
 						}),
 					},
 				};
@@ -129,7 +158,12 @@ export const make = Effect.gen(function* () {
 export const layerNoDeps = Layer.effect(Service, make);
 
 export const layer = layerNoDeps.pipe(
-	Layer.provide([PodSandboxes.layer, SandboxNetwork.layer, SandboxProviderRepository.layer]),
+	Layer.provide([
+		PodSandboxes.layer,
+		SandboxNetwork.layer,
+		SandboxSoftware.layer,
+		SandboxProviderRepository.layer,
+	]),
 );
 
 /** A turn that may use its pod's sandbox. */
